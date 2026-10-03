@@ -1,0 +1,4 @@
+courier_id,courier_name,service_level,pickup_time,delivery_days,cost_per_order
+C001,Courier A,Standard,15:00,3,70
+C002,Courier B,Express,14:00,1,110
+C003,Courier C,Economy,17:00,4,55

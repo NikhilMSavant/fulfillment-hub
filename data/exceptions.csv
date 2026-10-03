@@ -1,0 +1,13 @@
+exception_id,order_id,issue_type,description,priority,status,owner,created_at,resolved_at
+EXC-0001,ORD-1002,Inventory Shortage,Main warehouse does not have enough stock to fulfill the order.,High,Open,Warehouse,2026-10-01 09:00:00,
+EXC-0002,ORD-1001,Stock Transfer Required,Required stock is available in the secondary warehouse but must be moved to the main warehouse before picking.,High,In Progress,Warehouse,2026-10-01 10:00:00,
+EXC-0003,ORD-1004,Variant Mismatch,Picked product variant does not match the variant ordered by the customer.,High,Open,Warehouse,2026-10-01 11:00:00,
+EXC-0004,ORD-1010,Courier Pickup Missed,"Order is staged and awaiting pickup, but the scheduled courier pickup time has passed.",High,Open,Operations,2026-10-01 08:00:00,
+EXC-0005,ORD-1001,Priority Order At Risk,Priority order is still being processed and is approaching its required shipping deadline.,High,Open,Operations,2026-10-01 11:15:00,
+EXC-0006,ORD-1020,Picking Issue,Warehouse team could not immediately locate the required product.,Medium,Open,Warehouse,2026-10-01 10:00:00,
+EXC-0007,ORD-1030,Packing Issue,Package requires repacking before it can be staged.,Medium,In Progress,Warehouse,2026-10-01 09:00:00,
+EXC-0008,ORD-1040,Staging Issue,Packed shipment was temporarily misplaced in the staging area.,Medium,Open,Warehouse,2026-10-01 08:00:00,
+EXC-0009,ORD-1050,Inventory Mismatch,Recorded inventory does not match the physical stock count.,High,In Progress,Warehouse,2026-10-01 07:00:00,
+EXC-0010,ORD-1060,Courier Pickup Missed,Courier did not collect the shipment during the scheduled pickup window.,High,Resolved,Operations,2026-10-01 06:00:00,2026-10-01 07:00:00
+EXC-0011,ORD-1070,Packing Issue,Packaging material was unavailable and delayed packing.,Low,Resolved,Warehouse,2026-10-01 05:00:00,2026-10-01 06:00:00
+EXC-0012,ORD-1080,Picking Issue,Picker needed additional time to locate the product.,Medium,Resolved,Warehouse,2026-10-01 04:00:00,2026-10-01 05:00:00
