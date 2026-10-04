@@ -2,6 +2,11 @@ import sqlite3
 from pathlib import Path
 import pandas as pd
 
+from utils.calculations import (
+    can_start_picking,
+    validate_stage_transition,
+)
+
 
 # --------------------------------------------------
 # Database Path
@@ -234,6 +239,167 @@ def transfer_stock(
         connection.rollback()
 
         return False, f"Transfer failed: {e}"
+
+    finally:
+
+        connection.close()
+
+
+# --------------------------------------------------
+# Transition Order Stage
+# --------------------------------------------------
+
+def transition_order_stage(
+    order_id,
+    new_status,
+    user_role="Warehouse",
+    note=None,
+):
+    """
+    Move an order to the next valid fulfillment stage.
+
+    Rules:
+    - Only immediate next-stage transitions are allowed.
+    - Starting Picking is blocked when the main warehouse
+      does not have enough available stock.
+    - Every successful transition creates an order_events
+      audit record.
+    - Order update and audit event are atomic.
+    """
+
+    connection = get_connection()
+
+    try:
+        cursor = connection.cursor()
+
+        # ----------------------------------------------
+        # Get current order
+        # ----------------------------------------------
+
+        cursor.execute(
+            """
+            SELECT status
+            FROM orders
+            WHERE order_id = ?
+            """,
+            (order_id,),
+        )
+
+        order = cursor.fetchone()
+
+        if order is None:
+            return False, f"Order {order_id} was not found."
+
+        current_status = order[0]
+
+        # ----------------------------------------------
+        # Validate stage transition
+        # ----------------------------------------------
+
+        is_valid, transition_message = validate_stage_transition(
+            current_status,
+            new_status,
+        )
+
+        if not is_valid:
+            return False, transition_message
+
+        # ----------------------------------------------
+        # Picking stock check
+        # ----------------------------------------------
+
+        if new_status == "Picking":
+
+            cursor.execute(
+                """
+                SELECT
+                    oi.sku,
+                    oi.quantity,
+                    COALESCE(
+                        i.quantity_on_hand - i.reserved_quantity,
+                        0
+                    ) AS available_quantity
+                FROM order_items oi
+                LEFT JOIN inventory i
+                    ON oi.sku = i.sku
+                    AND i.warehouse_id = 'WH-MAIN'
+                WHERE oi.order_id = ?
+                """,
+                (order_id,),
+            )
+
+            order_items = cursor.fetchall()
+
+            if not order_items:
+                return (
+                    False,
+                    f"No order items found for {order_id}.",
+                )
+
+            for sku, required_quantity, available_quantity in order_items:
+
+                allowed, stock_message = can_start_picking(
+                    required_quantity,
+                    available_quantity,
+                )
+
+                if not allowed:
+                    return (
+                        False,
+                        f"Cannot start Picking for {order_id}. "
+                        f"SKU {sku}: {stock_message}",
+                    )
+
+        # ----------------------------------------------
+        # Update order status
+        # ----------------------------------------------
+
+        cursor.execute(
+            """
+            UPDATE orders
+            SET status = ?
+            WHERE order_id = ?
+            """,
+            (new_status, order_id),
+        )
+
+        # ----------------------------------------------
+        # Create audit event
+        # ----------------------------------------------
+
+        cursor.execute(
+            """
+            INSERT INTO order_events (
+                order_id,
+                from_status,
+                to_status,
+                user_role,
+                note
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                order_id,
+                current_status,
+                new_status,
+                user_role,
+                note,
+            ),
+        )
+
+        connection.commit()
+
+        return (
+            True,
+            f"{order_id} moved from "
+            f"{current_status} to {new_status}.",
+        )
+
+    except Exception as e:
+
+        connection.rollback()
+
+        return False, f"Stage transition failed: {e}"
 
     finally:
 
