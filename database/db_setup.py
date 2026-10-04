@@ -1,5 +1,6 @@
 import sqlite3
 from pathlib import Path
+
 import pandas as pd
 
 
@@ -17,8 +18,12 @@ DB_PATH = BASE_DIR / "database" / "fulfillment_hub.db"
 # --------------------------------------------------
 
 def create_database():
+    """Rebuild the demo SQLite database from the generated CSV files."""
 
+    # --------------------------------------------------
     # Remove existing database so it can be rebuilt
+    # --------------------------------------------------
+
     if DB_PATH.exists():
         DB_PATH.unlink()
 
@@ -29,66 +34,222 @@ def create_database():
         # Load CSV files
         # --------------------------------------------------
 
-        products_df = pd.read_csv(DATA_DIR / "products.csv")
-        inventory_df = pd.read_csv(DATA_DIR / "inventory.csv")
-        orders_df = pd.read_csv(DATA_DIR / "orders.csv")
-        order_items_df = pd.read_csv(DATA_DIR / "order_items.csv")
-        couriers_df = pd.read_csv(DATA_DIR / "couriers.csv")
-        shipments_df = pd.read_csv(DATA_DIR / "shipments.csv")
-        exceptions_df = pd.read_csv(DATA_DIR / "exceptions.csv")
+        products_df = pd.read_csv(
+            DATA_DIR / "products.csv"
+        )
+
+        inventory_df = pd.read_csv(
+            DATA_DIR / "inventory.csv"
+        )
+
+        orders_df = pd.read_csv(
+            DATA_DIR / "orders.csv"
+        )
+
+        order_items_df = pd.read_csv(
+            DATA_DIR / "order_items.csv"
+        )
+
+        couriers_df = pd.read_csv(
+            DATA_DIR / "couriers.csv"
+        )
+
+        shipments_df = pd.read_csv(
+            DATA_DIR / "shipments.csv"
+        )
+
+        exceptions_df = pd.read_csv(
+            DATA_DIR / "exceptions.csv"
+        )
 
         # --------------------------------------------------
-        # Create SQLite tables
+        # Create base SQLite tables
         # --------------------------------------------------
 
         products_df.to_sql(
             "products",
             connection,
             if_exists="replace",
-            index=False
+            index=False,
         )
 
         inventory_df.to_sql(
             "inventory",
             connection,
             if_exists="replace",
-            index=False
+            index=False,
         )
 
         orders_df.to_sql(
             "orders",
             connection,
             if_exists="replace",
-            index=False
+            index=False,
         )
 
         order_items_df.to_sql(
             "order_items",
             connection,
             if_exists="replace",
-            index=False
+            index=False,
         )
 
         couriers_df.to_sql(
             "couriers",
             connection,
             if_exists="replace",
-            index=False
+            index=False,
         )
 
         shipments_df.to_sql(
             "shipments",
             connection,
             if_exists="replace",
-            index=False
+            index=False,
         )
 
         exceptions_df.to_sql(
             "exceptions",
             connection,
             if_exists="replace",
-            index=False
+            index=False,
         )
+
+        # --------------------------------------------------
+        # Order Event Audit Table
+        # --------------------------------------------------
+
+        connection.execute(
+            """
+            CREATE TABLE order_events (
+                event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id TEXT NOT NULL,
+                from_status TEXT,
+                to_status TEXT NOT NULL,
+                user_role TEXT NOT NULL,
+                event_timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                note TEXT,
+                FOREIGN KEY (order_id)
+                    REFERENCES orders(order_id)
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE INDEX idx_order_events_order
+            ON order_events(order_id)
+            """
+        )
+
+        # --------------------------------------------------
+        # Stock Movement Audit Table
+        # --------------------------------------------------
+
+        connection.execute(
+            """
+            CREATE TABLE stock_movements (
+                movement_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sku TEXT NOT NULL,
+                warehouse_id TEXT NOT NULL,
+                movement_type TEXT NOT NULL,
+                quantity_delta INTEGER NOT NULL,
+                reference_type TEXT,
+                reference_id TEXT,
+                reason TEXT NOT NULL,
+                user_role TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (sku)
+                    REFERENCES products(sku)
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE INDEX idx_stock_movements_sku
+            ON stock_movements(sku)
+            """
+        )
+
+        # --------------------------------------------------
+        # Staging Bays
+        # --------------------------------------------------
+
+        staging_bays = pd.DataFrame(
+            [
+                {
+                    "bay_id": "A1",
+                    "courier_id": "C001",
+                    "bay_label": "Bay A1",
+                    "active": 1,
+                },
+                {
+                    "bay_id": "A2",
+                    "courier_id": "C001",
+                    "bay_label": "Bay A2",
+                    "active": 1,
+                },
+                {
+                    "bay_id": "A3",
+                    "courier_id": "C002",
+                    "bay_label": "Bay A3",
+                    "active": 1,
+                },
+                {
+                    "bay_id": "A4",
+                    "courier_id": "C002",
+                    "bay_label": "Bay A4",
+                    "active": 1,
+                },
+                {
+                    "bay_id": "B1",
+                    "courier_id": "C003",
+                    "bay_label": "Bay B1",
+                    "active": 1,
+                },
+                {
+                    "bay_id": "B2",
+                    "courier_id": "C003",
+                    "bay_label": "Bay B2",
+                    "active": 1,
+                },
+                {
+                    "bay_id": "B3",
+                    "courier_id": "C001",
+                    "bay_label": "Bay B3",
+                    "active": 1,
+                },
+                {
+                    "bay_id": "B4",
+                    "courier_id": "C002",
+                    "bay_label": "Bay B4",
+                    "active": 1,
+                },
+            ]
+        )
+
+        staging_bays.to_sql(
+            "staging_bays",
+            connection,
+            if_exists="replace",
+            index=False,
+        )
+
+        # --------------------------------------------------
+        # Exception Duplicate Protection
+        # --------------------------------------------------
+
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX idx_exception_order_issue
+            ON exceptions(order_id, issue_type)
+            """
+        )
+
+        # --------------------------------------------------
+        # Commit
+        # --------------------------------------------------
 
         connection.commit()
 
@@ -107,6 +268,9 @@ def create_database():
             "couriers",
             "shipments",
             "exceptions",
+            "order_events",
+            "stock_movements",
+            "staging_bays",
         ]
 
         print("\nTable row counts:")
@@ -115,7 +279,7 @@ def create_database():
 
             count = pd.read_sql_query(
                 f"SELECT COUNT(*) AS count FROM {table}",
-                connection
+                connection,
             ).iloc[0]["count"]
 
             print(f"{table}: {count}")

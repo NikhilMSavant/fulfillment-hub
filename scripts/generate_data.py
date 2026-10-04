@@ -118,18 +118,41 @@ def generate_inventory(products_df):
 
         for warehouse_id in warehouses:
             quantity_on_hand = random.randint(5, 30)
-            reserved_quantity = random.randint(0, min(5, quantity_on_hand))
+            reserved_quantity = random.randint(
+                0,
+                min(5, quantity_on_hand),
+            )
             reorder_level = random.randint(5, 10)
+
+            # Simple warehouse-friendly shelf/bin location.
+            # Main warehouse uses A-prefix locations.
+            # Secondary warehouse uses S-prefix locations.
+            shelf_prefix = (
+                "A"
+                if warehouse_id == "WH-MAIN"
+                else "S"
+            )
+
+            shelf_location = (
+                f"{shelf_prefix}-"
+                f"{random.randint(1, 12):02d}-"
+                f"{random.randint(1, 4):02d}"
+            )
 
             inventory.append(
                 {
-                    "inventory_id": f"INV-{len(inventory) + 1:03d}",
+                    "inventory_id": (
+                        f"INV-{len(inventory) + 1:03d}"
+                    ),
                     "sku": sku,
                     "warehouse_id": warehouse_id,
                     "quantity_on_hand": quantity_on_hand,
                     "reserved_quantity": reserved_quantity,
                     "reorder_level": reorder_level,
-                    "last_updated": "2026-09-30 10:00:00",
+                    "shelf_location": shelf_location,
+                    "last_updated": (
+                        "2026-09-30 10:00:00"
+                    ),
                 }
             )
 
@@ -142,30 +165,74 @@ def generate_inventory(products_df):
     # Scenario 1:
     # Main warehouse has insufficient stock,
     # but secondary warehouse has enough stock.
-    inventory_df.loc[0, "quantity_on_hand"] = 2
-    inventory_df.loc[0, "reserved_quantity"] = 0
+    inventory_df.loc[
+        0,
+        "quantity_on_hand"
+    ] = 2
 
-    inventory_df.loc[1, "quantity_on_hand"] = 10
-    inventory_df.loc[1, "reserved_quantity"] = 0
+    inventory_df.loc[
+        0,
+        "reserved_quantity"
+    ] = 0
+
+    inventory_df.loc[
+        1,
+        "quantity_on_hand"
+    ] = 10
+
+    inventory_df.loc[
+        1,
+        "reserved_quantity"
+    ] = 0
 
     # Scenario 2:
     # Both warehouses have insufficient stock.
-    inventory_df.loc[2, "quantity_on_hand"] = 2
-    inventory_df.loc[2, "reserved_quantity"] = 0
+    inventory_df.loc[
+        2,
+        "quantity_on_hand"
+    ] = 2
 
-    inventory_df.loc[3, "quantity_on_hand"] = 1
-    inventory_df.loc[3, "reserved_quantity"] = 0
+    inventory_df.loc[
+        2,
+        "reserved_quantity"
+    ] = 0
+
+    inventory_df.loc[
+        3,
+        "quantity_on_hand"
+    ] = 1
+
+    inventory_df.loc[
+        3,
+        "reserved_quantity"
+    ] = 0
 
     # Scenario 3:
     # Reserved stock example.
-    inventory_df.loc[4, "quantity_on_hand"] = 15
-    inventory_df.loc[4, "reserved_quantity"] = 5
+    inventory_df.loc[
+        4,
+        "quantity_on_hand"
+    ] = 15
+
+    inventory_df.loc[
+        4,
+        "reserved_quantity"
+    ] = 5
 
     output_path = DATA_DIR / "inventory.csv"
-    inventory_df.to_csv(output_path, index=False)
 
-    print(f"Created {len(inventory_df)} inventory records")
-    print(f"Saved to: {output_path}")
+    inventory_df.to_csv(
+        output_path,
+        index=False,
+    )
+
+    print(
+        f"Created {len(inventory_df)} inventory records"
+    )
+
+    print(
+        f"Saved to: {output_path}"
+    )
 
     return inventory_df
 
@@ -222,8 +289,8 @@ def generate_orders():
         "ORD-1140",
     }
 
-    # Generate 150 orders
-    for order_number in range(1, 151):
+    # Generate a realistic daily demo volume of 240 orders.
+    for order_number in range(1, 241):
 
         order_id = f"ORD-{1000 + order_number}"
 
