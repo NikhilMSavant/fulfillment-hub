@@ -1,10 +1,12 @@
 import sqlite3
 from pathlib import Path
+
 import pandas as pd
 
 from utils.calculations import (
     can_start_picking,
     validate_stage_transition,
+    verify_order_item,
 )
 
 
@@ -36,9 +38,17 @@ def run_query(query, params=None):
 
     try:
         if params is None:
-            return pd.read_sql_query(query, connection, params=())
-        else:
-            return pd.read_sql_query(query, connection, params=params)
+            return pd.read_sql_query(
+                query,
+                connection,
+                params=(),
+            )
+
+        return pd.read_sql_query(
+            query,
+            connection,
+            params=params,
+        )
 
     finally:
         connection.close()
@@ -235,13 +245,14 @@ def transfer_stock(
         )
 
     except Exception as e:
-
         connection.rollback()
 
-        return False, f"Transfer failed: {e}"
+        return (
+            False,
+            f"Transfer failed: {e}",
+        )
 
     finally:
-
         connection.close()
 
 
@@ -338,17 +349,6 @@ def adjust_inventory_count(
             )
 
         # ----------------------------------------------
-        # Prevent negative stock
-        # ----------------------------------------------
-
-        if counted_quantity < 0:
-            return (
-                False,
-                "Inventory adjustment would create "
-                "negative stock.",
-            )
-
-        # ----------------------------------------------
         # Update inventory
         # ----------------------------------------------
 
@@ -421,7 +421,6 @@ def adjust_inventory_count(
         existing_exception = cursor.fetchone()
 
         if existing_exception is None:
-
             cursor.execute(
                 """
                 SELECT exception_id
@@ -491,7 +490,6 @@ def adjust_inventory_count(
         )
 
     except Exception as e:
-
         connection.rollback()
 
         return (
@@ -500,9 +498,7 @@ def adjust_inventory_count(
         )
 
     finally:
-
         connection.close()
-
 
 
 # --------------------------------------------------
@@ -524,7 +520,14 @@ def transition_order_stage(
       does not have enough available stock.
     - Every successful transition creates an order_events
       audit record.
+    - Picking -> Picked requires successful Picking
+      verification for every order item.
+    - Packing -> Packed requires successful Packing
+      verification for every order item.
     - Order update and audit event are atomic.
+
+    Returns:
+        (success, message)
     """
 
     connection = get_connection()
@@ -548,7 +551,10 @@ def transition_order_stage(
         order = cursor.fetchone()
 
         if order is None:
-            return False, f"Order {order_id} was not found."
+            return (
+                False,
+                f"Order {order_id} was not found.",
+            )
 
         current_status = order[0]
 
@@ -569,7 +575,6 @@ def transition_order_stage(
         # ----------------------------------------------
 
         if new_status == "Picking":
-
             cursor.execute(
                 """
                 SELECT
@@ -596,8 +601,11 @@ def transition_order_stage(
                     f"No order items found for {order_id}.",
                 )
 
-            for sku, required_quantity, available_quantity in order_items:
-
+            for (
+                sku,
+                required_quantity,
+                available_quantity,
+            ) in order_items:
                 allowed, stock_message = can_start_picking(
                     required_quantity,
                     available_quantity,
@@ -611,6 +619,45 @@ def transition_order_stage(
                     )
 
         # ----------------------------------------------
+        # Item verification check
+        # ----------------------------------------------
+
+        if new_status in {"Picked", "Packed"}:
+            verification_stage = (
+                "Picking"
+                if new_status == "Picked"
+                else "Packing"
+            )
+
+            cursor.execute(
+                """
+                SELECT COUNT(*)
+                FROM order_items oi
+                WHERE oi.order_id = ?
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM order_item_verifications v
+                      WHERE v.order_item_id = oi.order_item_id
+                        AND v.stage = ?
+                  )
+                """,
+                (
+                    order_id,
+                    verification_stage,
+                ),
+            )
+
+            unverified_count = cursor.fetchone()[0]
+
+            if unverified_count > 0:
+                return (
+                    False,
+                    f"Cannot move {order_id} to {new_status}. "
+                    f"{unverified_count} order item(s) still need "
+                    f"successful {verification_stage} verification.",
+                )
+
+        # ----------------------------------------------
         # Update order status
         # ----------------------------------------------
 
@@ -620,7 +667,10 @@ def transition_order_stage(
             SET status = ?
             WHERE order_id = ?
             """,
-            (new_status, order_id),
+            (
+                new_status,
+                order_id,
+            ),
         )
 
         # ----------------------------------------------
@@ -656,13 +706,14 @@ def transition_order_stage(
         )
 
     except Exception as e:
-
         connection.rollback()
 
-        return False, f"Stage transition failed: {e}"
+        return (
+            False,
+            f"Stage transition failed: {e}",
+        )
 
     finally:
-
         connection.close()
 
 
@@ -703,7 +754,10 @@ def create_exception(
             WHERE order_id = ?
               AND issue_type = ?
             """,
-            (order_id, issue_type),
+            (
+                order_id,
+                issue_type,
+            ),
         )
 
         existing = cursor.fetchone()
@@ -737,7 +791,9 @@ def create_exception(
             latest_number = int(
                 latest[0].replace("EXC-", "")
             )
-            exception_id = f"EXC-{latest_number + 1:04d}"
+            exception_id = (
+                f"EXC-{latest_number + 1:04d}"
+            )
 
         # ----------------------------------------------
         # Insert exception
@@ -757,7 +813,8 @@ def create_exception(
                 resolved_at
             )
             VALUES (
-                ?, ?, ?, ?, ?, 'Open', ?, CURRENT_TIMESTAMP, NULL
+                ?, ?, ?, ?, ?, 'Open', ?,
+                CURRENT_TIMESTAMP, NULL
             )
             """,
             (
@@ -779,7 +836,6 @@ def create_exception(
         )
 
     except Exception as e:
-
         connection.rollback()
 
         return (
@@ -789,137 +845,145 @@ def create_exception(
         )
 
     finally:
-
         connection.close()
 
 
-
 # --------------------------------------------------
-# Create Inventory Mismatch Exception
+# Verify Order Item
 # --------------------------------------------------
 
-def create_inventory_mismatch_exception(
-    sku,
-    warehouse_id,
-    system_quantity,
-    counted_quantity,
+def verify_order_item_in_db(
+    order_item_id,
+    scanned_sku,
+    scanned_product_name,
+    scanned_variant,
+    verified_quantity,
+    stage,
     user_role="Warehouse",
 ):
     """
-    Create an Inventory Mismatch exception for a physical count.
+    Verify one order item against product master data
+    and store the successful verification for the specified stage.
 
-    The mismatch is linked to the SKU and warehouse rather
-    than an order.
-
-    Duplicate mismatches for the same SKU + warehouse are
-    prevented.
-
-    Returns:
-        (success, message, exception_id)
+    Wrong item and wrong variant results create a
+    Variant Mismatch exception.
     """
+
+    valid_stages = {
+        "Picking",
+        "Packing",
+    }
+
+    if stage not in valid_stages:
+        return (
+            False,
+            "Verification is only allowed during "
+            "Picking or Packing.",
+        )
 
     connection = get_connection()
 
     try:
         cursor = connection.cursor()
 
-        reference_type = "Inventory"
-        reference_id = f"{warehouse_id}:{sku}"
-
         # ----------------------------------------------
-        # Check for an existing mismatch
+        # Get expected order item details
         # ----------------------------------------------
 
         cursor.execute(
             """
-            SELECT exception_id
-            FROM exceptions
-            WHERE reference_type = ?
-              AND reference_id = ?
-              AND issue_type = 'Inventory Mismatch'
+            SELECT
+                oi.order_id,
+                oi.sku,
+                oi.quantity,
+                p.product_name,
+                p.variant
+            FROM order_items oi
+            JOIN products p
+                ON oi.sku = p.sku
+            WHERE oi.order_item_id = ?
             """,
-            (
-                reference_type,
-                reference_id,
-            ),
+            (order_item_id,),
         )
 
-        existing = cursor.fetchone()
+        item = cursor.fetchone()
 
-        if existing is not None:
+        if item is None:
             return (
                 False,
-                f"Inventory Mismatch already exists for "
-                f"{sku} at {warehouse_id}.",
-                existing[0],
+                f"Order item {order_item_id} was not found.",
+            )
+
+        (
+            order_id,
+            expected_sku,
+            required_quantity,
+            expected_product_name,
+            expected_variant,
+        ) = item
+
+        # ----------------------------------------------
+        # Verify item
+        # ----------------------------------------------
+
+        result = verify_order_item(
+            expected_sku=expected_sku,
+            expected_product_name=expected_product_name,
+            expected_variant=expected_variant,
+            scanned_sku=scanned_sku,
+            scanned_product_name=scanned_product_name,
+            scanned_variant=scanned_variant,
+            verified_quantity=verified_quantity,
+            required_quantity=required_quantity,
+        )
+
+        # ----------------------------------------------
+        # Handle failed verification
+        # ----------------------------------------------
+
+        if not result["is_valid"]:
+            if result["status"] in {
+                "WRONG ITEM",
+                "WRONG VARIANT",
+            }:
+                create_exception(
+                    order_id=order_id,
+                    issue_type="Variant Mismatch",
+                    description=result["message"],
+                    priority="High",
+                    owner=user_role,
+                )
+
+            return (
+                False,
+                result["message"],
             )
 
         # ----------------------------------------------
-        # Generate exception ID
+        # Store successful verification
         # ----------------------------------------------
 
         cursor.execute(
             """
-            SELECT exception_id
-            FROM exceptions
-            ORDER BY exception_id DESC
-            LIMIT 1
-            """
-        )
-
-        latest = cursor.fetchone()
-
-        if latest is None:
-            exception_id = "EXC-0001"
-        else:
-            latest_number = int(
-                latest[0].replace("EXC-", "")
+            INSERT INTO order_item_verifications (
+                order_item_id,
+                stage,
+                verified_sku,
+                verified_product_name,
+                verified_variant,
+                verified_quantity,
+                user_role
             )
-            exception_id = f"EXC-{latest_number + 1:04d}"
-
-        # ----------------------------------------------
-        # Build description
-        # ----------------------------------------------
-
-        description = (
-            f"Physical count mismatch for {sku} at "
-            f"{warehouse_id}. System quantity: "
-            f"{system_quantity}. Counted quantity: "
-            f"{counted_quantity}."
-        )
-
-        # ----------------------------------------------
-        # Insert exception
-        # ----------------------------------------------
-
-        cursor.execute(
-            """
-            INSERT INTO exceptions (
-                exception_id,
-                order_id,
-                issue_type,
-                description,
-                priority,
-                status,
-                owner,
-                created_at,
-                resolved_at,
-                reference_type,
-                reference_id
-            )
-            VALUES (
-                ?, NULL, ?, ?, ?, 'Open', ?,
-                CURRENT_TIMESTAMP, NULL, ?, ?
-            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                exception_id,
-                "Inventory Mismatch",
-                description,
-                "High",
-                "Warehouse",
-                reference_type,
-                reference_id,
+                order_item_id,
+                stage,
+                scanned_sku,
+                scanned_product_name,
+                scanned_variant,
+                verified_quantity,
+                user_role,
             ),
         )
 
@@ -927,24 +991,15 @@ def create_inventory_mismatch_exception(
 
         return (
             True,
-            f"Inventory Mismatch {exception_id} created.",
-            exception_id,
+            "Item and quantity verified successfully.",
         )
 
-    except Exception as e:
-
+    except Exception:
         connection.rollback()
-
-        return (
-            False,
-            f"Inventory mismatch exception failed: {e}",
-            None,
-        )
+        raise
 
     finally:
-
         connection.close()
-
 
 
 # --------------------------------------------------
@@ -964,6 +1019,9 @@ def update_exception_status(
         Resolved
 
     resolved_at is automatically managed.
+
+    Returns:
+        (success, message)
     """
 
     valid_statuses = {
@@ -1001,7 +1059,6 @@ def update_exception_status(
             )
 
         if new_status == "Resolved":
-
             cursor.execute(
                 """
                 UPDATE exceptions
@@ -1009,11 +1066,13 @@ def update_exception_status(
                     resolved_at = CURRENT_TIMESTAMP
                 WHERE exception_id = ?
                 """,
-                (new_status, exception_id),
+                (
+                    new_status,
+                    exception_id,
+                ),
             )
 
         else:
-
             cursor.execute(
                 """
                 UPDATE exceptions
@@ -1021,7 +1080,10 @@ def update_exception_status(
                     resolved_at = NULL
                 WHERE exception_id = ?
                 """,
-                (new_status, exception_id),
+                (
+                    new_status,
+                    exception_id,
+                ),
             )
 
         connection.commit()
@@ -1032,7 +1094,6 @@ def update_exception_status(
         )
 
     except Exception as e:
-
         connection.rollback()
 
         return (
@@ -1041,5 +1102,4 @@ def update_exception_status(
         )
 
     finally:
-
         connection.close()

@@ -135,6 +135,36 @@ def create_database():
             """
         )
 
+
+        # --------------------------------------------------
+        # Order Item Verification Audit Table
+        # --------------------------------------------------
+
+        connection.execute(
+            """
+            CREATE TABLE order_item_verifications (
+                verification_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_item_id TEXT NOT NULL,
+                stage TEXT NOT NULL,
+                verified_sku TEXT NOT NULL,
+                verified_product_name TEXT NOT NULL,
+                verified_variant TEXT NOT NULL,
+                verified_quantity INTEGER NOT NULL,
+                user_role TEXT NOT NULL,
+                verified_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (order_item_id)
+                    REFERENCES order_items(order_item_id)
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE INDEX idx_order_item_verifications_item_stage
+            ON order_item_verifications(order_item_id, stage)
+            """
+        )
+
         connection.execute(
             """
             CREATE INDEX idx_order_events_order
@@ -296,6 +326,7 @@ def create_database():
             "shipments",
             "exceptions",
             "order_events",
+            "order_item_verifications",
             "stock_movements",
             "staging_bays",
         ]

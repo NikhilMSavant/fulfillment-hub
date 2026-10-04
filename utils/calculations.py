@@ -56,9 +56,7 @@ def validate_stage_transition(current_status, new_status):
             "Shipped orders cannot move to another fulfillment stage.",
         )
 
-    expected_next = VALID_STAGE_TRANSITIONS.get(
-        current_status
-    )
+    expected_next = VALID_STAGE_TRANSITIONS.get(current_status)
 
     if new_status != expected_next:
         return (
@@ -96,6 +94,73 @@ def can_start_picking(
         )
 
     return True, "Main warehouse has enough stock for picking."
+
+
+def verify_order_item(
+    expected_sku,
+    expected_product_name,
+    expected_variant,
+    scanned_sku,
+    scanned_product_name,
+    scanned_variant,
+    verified_quantity,
+    required_quantity,
+):
+    """
+    Verify a picked/packed item against the expected order line.
+
+    Returns:
+        dict containing verification status and message.
+    """
+
+    if scanned_sku != expected_sku:
+        return {
+            "status": "WRONG ITEM",
+            "is_valid": False,
+            "message": (
+                f"Wrong item. Expected SKU {expected_sku}, "
+                f"but received SKU {scanned_sku}."
+            ),
+        }
+
+    if scanned_product_name != expected_product_name:
+        return {
+            "status": "WRONG ITEM",
+            "is_valid": False,
+            "message": (
+                f"Wrong item. Expected product "
+                f"'{expected_product_name}', "
+                f"but received '{scanned_product_name}'."
+            ),
+        }
+
+    if scanned_variant != expected_variant:
+        return {
+            "status": "WRONG VARIANT",
+            "is_valid": False,
+            "message": (
+                f"Wrong variant. Expected "
+                f"'{expected_variant}', "
+                f"but received '{scanned_variant}'."
+            ),
+        }
+
+    if verified_quantity != required_quantity:
+        return {
+            "status": "QUANTITY MISMATCH",
+            "is_valid": False,
+            "message": (
+                f"Quantity mismatch. Expected "
+                f"{required_quantity}, "
+                f"but verified {verified_quantity}."
+            ),
+        }
+
+    return {
+        "status": "Correct item",
+        "is_valid": True,
+        "message": "Item and quantity verified successfully.",
+    }
 
 
 # --------------------------------------------------

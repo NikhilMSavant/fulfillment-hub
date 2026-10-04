@@ -5,10 +5,74 @@ from utils.calculations import (
     calculate_order_inventory_status,
     calculate_order_risk,
     calculate_pickup_risk,
-    validate_stage_transition,
     can_start_picking,
+    verify_order_item,
+    validate_stage_transition,
 )
 
+
+def test_verify_correct_item():
+    result = verify_order_item(
+        expected_sku="SKU-001",
+        expected_product_name="Product 1",
+        expected_variant="Blue / M",
+        scanned_sku="SKU-001",
+        scanned_product_name="Product 1",
+        scanned_variant="Blue / M",
+        verified_quantity=2,
+        required_quantity=2,
+    )
+
+    assert result["is_valid"] is True
+    assert result["status"] == "Correct item"
+
+
+def test_verify_wrong_item():
+    result = verify_order_item(
+        expected_sku="SKU-001",
+        expected_product_name="Product 1",
+        expected_variant="Blue / M",
+        scanned_sku="SKU-002",
+        scanned_product_name="Product 2",
+        scanned_variant="Red / L",
+        verified_quantity=2,
+        required_quantity=2,
+    )
+
+    assert result["is_valid"] is False
+    assert result["status"] == "WRONG ITEM"
+
+
+def test_verify_wrong_variant():
+    result = verify_order_item(
+        expected_sku="SKU-001",
+        expected_product_name="Product 1",
+        expected_variant="Blue / M",
+        scanned_sku="SKU-001",
+        scanned_product_name="Product 1",
+        scanned_variant="Red / M",
+        verified_quantity=2,
+        required_quantity=2,
+    )
+
+    assert result["is_valid"] is False
+    assert result["status"] == "WRONG VARIANT"
+
+
+def test_verify_quantity_mismatch():
+    result = verify_order_item(
+        expected_sku="SKU-001",
+        expected_product_name="Product 1",
+        expected_variant="Blue / M",
+        scanned_sku="SKU-001",
+        scanned_product_name="Product 1",
+        scanned_variant="Blue / M",
+        verified_quantity=1,
+        required_quantity=2,
+    )
+
+    assert result["is_valid"] is False
+    assert result["status"] == "QUANTITY MISMATCH"
 
 # --------------------------------------------------
 # Existing calculation tests
