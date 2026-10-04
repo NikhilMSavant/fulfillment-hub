@@ -246,6 +246,266 @@ def transfer_stock(
 
 
 # --------------------------------------------------
+# Adjust Inventory Count
+# --------------------------------------------------
+
+def adjust_inventory_count(
+    sku,
+    warehouse_id,
+    counted_quantity,
+    reason,
+    user_role="Warehouse",
+):
+    """
+    Correct system inventory to match a physical count.
+
+    Rules:
+    - Counted quantity cannot be negative.
+    - Reason is mandatory.
+    - Quantity delta is calculated from system quantity.
+    - Stock movement is recorded.
+    - Inventory Mismatch exception is created when
+      counted quantity differs from system quantity.
+    - Inventory update, audit record, and exception are atomic.
+
+    Returns:
+        (success, message)
+    """
+
+    if counted_quantity < 0:
+        return (
+            False,
+            "Counted quantity cannot be negative.",
+        )
+
+    if not reason or not reason.strip():
+        return (
+            False,
+            "A reason is required for an inventory adjustment.",
+        )
+
+    connection = get_connection()
+
+    try:
+        cursor = connection.cursor()
+
+        # ----------------------------------------------
+        # Get current inventory
+        # ----------------------------------------------
+
+        cursor.execute(
+            """
+            SELECT quantity_on_hand
+            FROM inventory
+            WHERE sku = ?
+              AND warehouse_id = ?
+            """,
+            (
+                sku,
+                warehouse_id,
+            ),
+        )
+
+        inventory = cursor.fetchone()
+
+        if inventory is None:
+            return (
+                False,
+                f"Inventory record not found for "
+                f"{sku} at {warehouse_id}.",
+            )
+
+        system_quantity = inventory[0]
+
+        # ----------------------------------------------
+        # Calculate adjustment
+        # ----------------------------------------------
+
+        quantity_delta = (
+            counted_quantity - system_quantity
+        )
+
+        # ----------------------------------------------
+        # No adjustment required
+        # ----------------------------------------------
+
+        if quantity_delta == 0:
+            return (
+                True,
+                f"No adjustment required. "
+                f"{sku} already has a quantity of "
+                f"{system_quantity}.",
+            )
+
+        # ----------------------------------------------
+        # Prevent negative stock
+        # ----------------------------------------------
+
+        if counted_quantity < 0:
+            return (
+                False,
+                "Inventory adjustment would create "
+                "negative stock.",
+            )
+
+        # ----------------------------------------------
+        # Update inventory
+        # ----------------------------------------------
+
+        cursor.execute(
+            """
+            UPDATE inventory
+            SET quantity_on_hand = ?,
+                last_updated = CURRENT_TIMESTAMP
+            WHERE sku = ?
+              AND warehouse_id = ?
+            """,
+            (
+                counted_quantity,
+                sku,
+                warehouse_id,
+            ),
+        )
+
+        # ----------------------------------------------
+        # Audit stock movement
+        # ----------------------------------------------
+
+        cursor.execute(
+            """
+            INSERT INTO stock_movements (
+                sku,
+                warehouse_id,
+                movement_type,
+                quantity_delta,
+                reference_type,
+                reference_id,
+                reason,
+                user_role
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                sku,
+                warehouse_id,
+                "Inventory Adjustment",
+                quantity_delta,
+                "Inventory Count",
+                f"{warehouse_id}:{sku}",
+                reason.strip(),
+                user_role,
+            ),
+        )
+
+        # ----------------------------------------------
+        # Create mismatch exception
+        # ----------------------------------------------
+
+        reference_type = "Inventory"
+        reference_id = f"{warehouse_id}:{sku}"
+
+        cursor.execute(
+            """
+            SELECT exception_id
+            FROM exceptions
+            WHERE reference_type = ?
+              AND reference_id = ?
+              AND issue_type = 'Inventory Mismatch'
+            """,
+            (
+                reference_type,
+                reference_id,
+            ),
+        )
+
+        existing_exception = cursor.fetchone()
+
+        if existing_exception is None:
+
+            cursor.execute(
+                """
+                SELECT exception_id
+                FROM exceptions
+                ORDER BY exception_id DESC
+                LIMIT 1
+                """
+            )
+
+            latest = cursor.fetchone()
+
+            if latest is None:
+                exception_id = "EXC-0001"
+            else:
+                latest_number = int(
+                    latest[0].replace("EXC-", "")
+                )
+                exception_id = (
+                    f"EXC-{latest_number + 1:04d}"
+                )
+
+            description = (
+                f"Physical count mismatch for {sku} at "
+                f"{warehouse_id}. System quantity: "
+                f"{system_quantity}. Counted quantity: "
+                f"{counted_quantity}."
+            )
+
+            cursor.execute(
+                """
+                INSERT INTO exceptions (
+                    exception_id,
+                    order_id,
+                    issue_type,
+                    description,
+                    priority,
+                    status,
+                    owner,
+                    created_at,
+                    resolved_at,
+                    reference_type,
+                    reference_id
+                )
+                VALUES (
+                    ?, NULL, ?, ?, ?, 'Open', ?,
+                    CURRENT_TIMESTAMP, NULL, ?, ?
+                )
+                """,
+                (
+                    exception_id,
+                    "Inventory Mismatch",
+                    description,
+                    "High",
+                    "Warehouse",
+                    reference_type,
+                    reference_id,
+                ),
+            )
+
+        connection.commit()
+
+        return (
+            True,
+            f"Inventory for {sku} at {warehouse_id} "
+            f"adjusted from {system_quantity} to "
+            f"{counted_quantity}.",
+        )
+
+    except Exception as e:
+
+        connection.rollback()
+
+        return (
+            False,
+            f"Inventory adjustment failed: {e}",
+        )
+
+    finally:
+
+        connection.close()
+
+
+
+# --------------------------------------------------
 # Transition Order Stage
 # --------------------------------------------------
 
@@ -531,6 +791,160 @@ def create_exception(
     finally:
 
         connection.close()
+
+
+
+# --------------------------------------------------
+# Create Inventory Mismatch Exception
+# --------------------------------------------------
+
+def create_inventory_mismatch_exception(
+    sku,
+    warehouse_id,
+    system_quantity,
+    counted_quantity,
+    user_role="Warehouse",
+):
+    """
+    Create an Inventory Mismatch exception for a physical count.
+
+    The mismatch is linked to the SKU and warehouse rather
+    than an order.
+
+    Duplicate mismatches for the same SKU + warehouse are
+    prevented.
+
+    Returns:
+        (success, message, exception_id)
+    """
+
+    connection = get_connection()
+
+    try:
+        cursor = connection.cursor()
+
+        reference_type = "Inventory"
+        reference_id = f"{warehouse_id}:{sku}"
+
+        # ----------------------------------------------
+        # Check for an existing mismatch
+        # ----------------------------------------------
+
+        cursor.execute(
+            """
+            SELECT exception_id
+            FROM exceptions
+            WHERE reference_type = ?
+              AND reference_id = ?
+              AND issue_type = 'Inventory Mismatch'
+            """,
+            (
+                reference_type,
+                reference_id,
+            ),
+        )
+
+        existing = cursor.fetchone()
+
+        if existing is not None:
+            return (
+                False,
+                f"Inventory Mismatch already exists for "
+                f"{sku} at {warehouse_id}.",
+                existing[0],
+            )
+
+        # ----------------------------------------------
+        # Generate exception ID
+        # ----------------------------------------------
+
+        cursor.execute(
+            """
+            SELECT exception_id
+            FROM exceptions
+            ORDER BY exception_id DESC
+            LIMIT 1
+            """
+        )
+
+        latest = cursor.fetchone()
+
+        if latest is None:
+            exception_id = "EXC-0001"
+        else:
+            latest_number = int(
+                latest[0].replace("EXC-", "")
+            )
+            exception_id = f"EXC-{latest_number + 1:04d}"
+
+        # ----------------------------------------------
+        # Build description
+        # ----------------------------------------------
+
+        description = (
+            f"Physical count mismatch for {sku} at "
+            f"{warehouse_id}. System quantity: "
+            f"{system_quantity}. Counted quantity: "
+            f"{counted_quantity}."
+        )
+
+        # ----------------------------------------------
+        # Insert exception
+        # ----------------------------------------------
+
+        cursor.execute(
+            """
+            INSERT INTO exceptions (
+                exception_id,
+                order_id,
+                issue_type,
+                description,
+                priority,
+                status,
+                owner,
+                created_at,
+                resolved_at,
+                reference_type,
+                reference_id
+            )
+            VALUES (
+                ?, NULL, ?, ?, ?, 'Open', ?,
+                CURRENT_TIMESTAMP, NULL, ?, ?
+            )
+            """,
+            (
+                exception_id,
+                "Inventory Mismatch",
+                description,
+                "High",
+                "Warehouse",
+                reference_type,
+                reference_id,
+            ),
+        )
+
+        connection.commit()
+
+        return (
+            True,
+            f"Inventory Mismatch {exception_id} created.",
+            exception_id,
+        )
+
+    except Exception as e:
+
+        connection.rollback()
+
+        return (
+            False,
+            f"Inventory mismatch exception failed: {e}",
+            None,
+        )
+
+    finally:
+
+        connection.close()
+
 
 
 # --------------------------------------------------

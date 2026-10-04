@@ -237,15 +237,42 @@ def create_database():
         )
 
         # --------------------------------------------------
+        # Exception Reference Fields
+        # --------------------------------------------------
+
+        connection.execute(
+            """
+            ALTER TABLE exceptions
+            ADD COLUMN reference_type TEXT
+            """
+        )
+
+        connection.execute(
+            """
+            ALTER TABLE exceptions
+            ADD COLUMN reference_id TEXT
+            """
+        )
+
+
+        # --------------------------------------------------
         # Exception Duplicate Protection
         # --------------------------------------------------
 
         connection.execute(
             """
-            CREATE UNIQUE INDEX idx_exception_order_issue
+            CREATE UNIQUE INDEX idx_exceptions_order_issue
             ON exceptions(order_id, issue_type)
             """
         )
+
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX idx_exceptions_reference_issue
+            ON exceptions(reference_type, reference_id, issue_type)
+            """
+        )
+
 
         # --------------------------------------------------
         # Commit
