@@ -4,11 +4,11 @@ ORD-1002,2026-09-30 08:43:00,Customer 002,Website,True,2026-10-01 09:00:00,Picki
 ORD-1003,2026-10-01 08:08:00,Customer 003,Marketplace A,False,2026-10-01 20:00:00,Processed,C002
 ORD-1004,2026-10-01 11:18:00,Customer 004,Marketplace A,False,2026-10-01 18:00:00,Processed,C002
 ORD-1005,2026-10-01 07:38:00,Customer 005,Marketplace B,False,2026-09-30 18:00:00,Shipped,C002
-ORD-1006,2026-09-29 10:53:00,Customer 006,Marketplace B,False,2026-09-29 22:53:00,Shipped,C001
+ORD-1006,2026-09-29 10:53:00,Customer 006,Marketplace B,False,2026-10-01 16:00:00,Packed,C001
 ORD-1007,2026-10-01 10:22:00,Customer 007,Marketplace B,False,2026-10-02 10:22:00,Packing,C002
 ORD-1008,2026-09-30 03:53:00,Customer 008,Website,False,2026-10-01 20:00:00,Packed,C002
 ORD-1009,2026-10-01 03:01:00,Customer 009,Marketplace B,True,2026-10-02 15:01:00,Staged,C003
-ORD-1010,2026-09-30 05:56:00,Customer 010,Website,False,2026-10-02 00:00:00,Picked,C003
+ORD-1010,2026-09-30 05:56:00,Customer 010,Website,False,2026-09-30 18:00:00,Awaiting Pickup,C001
 ORD-1011,2026-09-29 07:18:00,Customer 011,Marketplace B,False,2026-10-02 00:00:00,Packing,C002
 ORD-1012,2026-09-29 09:48:00,Customer 012,Marketplace B,False,2026-10-02 12:00:00,Packing,C003
 ORD-1013,2026-09-29 07:35:00,Customer 013,Marketplace A,False,2026-10-01 16:00:00,Picking,C002

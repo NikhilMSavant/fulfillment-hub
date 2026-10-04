@@ -87,7 +87,9 @@ def generate_products():
                     "product_name": product_name,
                     "category": category,
                     "variant": variant,
-                    "unit_price": random.choice([299, 399, 499, 599, 699, 799, 999]),
+                    "unit_price": random.choice(
+                        [299, 399, 499, 599, 699, 799, 999]
+                    ),
                 }
             )
 
@@ -150,9 +152,7 @@ def generate_inventory(products_df):
                     "reserved_quantity": reserved_quantity,
                     "reorder_level": reorder_level,
                     "shelf_location": shelf_location,
-                    "last_updated": (
-                        "2026-09-30 10:00:00"
-                    ),
+                    "last_updated": "2026-09-30 10:00:00",
                 }
             )
 
@@ -167,56 +167,56 @@ def generate_inventory(products_df):
     # but secondary warehouse has enough stock.
     inventory_df.loc[
         0,
-        "quantity_on_hand"
+        "quantity_on_hand",
     ] = 2
 
     inventory_df.loc[
         0,
-        "reserved_quantity"
+        "reserved_quantity",
     ] = 0
 
     inventory_df.loc[
         1,
-        "quantity_on_hand"
+        "quantity_on_hand",
     ] = 10
 
     inventory_df.loc[
         1,
-        "reserved_quantity"
+        "reserved_quantity",
     ] = 0
 
     # Scenario 2:
     # Both warehouses have insufficient stock.
     inventory_df.loc[
         2,
-        "quantity_on_hand"
+        "quantity_on_hand",
     ] = 2
 
     inventory_df.loc[
         2,
-        "reserved_quantity"
+        "reserved_quantity",
     ] = 0
 
     inventory_df.loc[
         3,
-        "quantity_on_hand"
+        "quantity_on_hand",
     ] = 1
 
     inventory_df.loc[
         3,
-        "reserved_quantity"
+        "reserved_quantity",
     ] = 0
 
     # Scenario 3:
     # Reserved stock example.
     inventory_df.loc[
         4,
-        "quantity_on_hand"
+        "quantity_on_hand",
     ] = 15
 
     inventory_df.loc[
         4,
-        "reserved_quantity"
+        "reserved_quantity",
     ] = 5
 
     output_path = DATA_DIR / "inventory.csv"
@@ -344,17 +344,23 @@ def generate_orders():
                     hours=random.choice([4, 8, 12, 24])
                 )
 
-        courier_id = random.choice(["C001", "C002", "C003"])
+        courier_id = random.choice(
+            ["C001", "C002", "C003"]
+        )
 
         orders.append(
             {
                 "order_id": order_id,
-                "order_date": order_date.strftime("%Y-%m-%d %H:%M:%S"),
+                "order_date": order_date.strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                ),
                 "customer_name": f"Customer {order_number:03d}",
                 "channel": random.choice(channels),
                 "priority": priority,
-                "required_ship_datetime": required_ship_datetime.strftime(
-                    "%Y-%m-%d %H:%M:%S"
+                "required_ship_datetime": (
+                    required_ship_datetime.strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
                 ),
                 "status": status,
                 "courier_id": courier_id,
@@ -372,44 +378,127 @@ def generate_orders():
     # Used with SKU-001 qty 5.
     orders_df.loc[
         orders_df["order_id"] == "ORD-1001",
-        ["priority", "status", "required_ship_datetime"],
-    ] = [True, "Processed", "2026-10-01 13:00:00"]
+        [
+            "priority",
+            "status",
+            "required_ship_datetime",
+        ],
+    ] = [
+        True,
+        "Processed",
+        "2026-10-01 13:00:00",
+    ]
 
     # ORD-1002
     # Priority order already past deadline.
     # Used with SKU-002 qty 5.
     orders_df.loc[
         orders_df["order_id"] == "ORD-1002",
-        ["priority", "status", "required_ship_datetime"],
-    ] = [True, "Picking", "2026-10-01 09:00:00"]
+        [
+            "priority",
+            "status",
+            "required_ship_datetime",
+        ],
+    ] = [
+        True,
+        "Picking",
+        "2026-10-01 09:00:00",
+    ]
 
     # ORD-1003
     # Reserved inventory demonstration.
     orders_df.loc[
         orders_df["order_id"] == "ORD-1003",
-        ["priority", "status", "required_ship_datetime"],
-    ] = [False, "Processed", "2026-10-01 20:00:00"]
+        [
+            "priority",
+            "status",
+            "required_ship_datetime",
+        ],
+    ] = [
+        False,
+        "Processed",
+        "2026-10-01 20:00:00",
+    ]
 
     # ORD-1004
     # Normal insufficient-inventory style order.
     orders_df.loc[
         orders_df["order_id"] == "ORD-1004",
-        ["priority", "status", "required_ship_datetime"],
-    ] = [False, "Processed", "2026-10-01 18:00:00"]
+        [
+            "priority",
+            "status",
+            "required_ship_datetime",
+        ],
+    ] = [
+        False,
+        "Processed",
+        "2026-10-01 18:00:00",
+    ]
 
     # ORD-1005
     # Normal completed order.
     orders_df.loc[
         orders_df["order_id"] == "ORD-1005",
-        ["priority", "status", "required_ship_datetime"],
-    ] = [False, "Shipped", "2026-09-30 18:00:00"]
+        [
+            "priority",
+            "status",
+            "required_ship_datetime",
+        ],
+    ] = [
+        False,
+        "Shipped",
+        "2026-09-30 18:00:00",
+    ]
+
+    # ORD-1006
+    # Deterministic staging workflow demonstration.
+    orders_df.loc[
+        orders_df["order_id"] == "ORD-1006",
+        [
+            "priority",
+            "status",
+            "required_ship_datetime",
+            "courier_id",
+        ],
+    ] = [
+        False,
+        "Packed",
+        "2026-10-01 16:00:00",
+        "C001",
+    ]
+
+    # ORD-1010
+    # Deterministic overdue courier pickup scenario.
+    orders_df.loc[
+        orders_df["order_id"] == "ORD-1010",
+        [
+            "priority",
+            "status",
+            "required_ship_datetime",
+            "courier_id",
+        ],
+    ] = [
+        False,
+        "Awaiting Pickup",
+        "2026-09-30 18:00:00",
+        "C001",
+    ]
 
     # Save
     output_path = DATA_DIR / "orders.csv"
-    orders_df.to_csv(output_path, index=False)
 
-    print(f"Created {len(orders_df)} orders")
-    print(f"Saved to: {output_path}")
+    orders_df.to_csv(
+        output_path,
+        index=False,
+    )
+
+    print(
+        f"Created {len(orders_df)} orders"
+    )
+
+    print(
+        f"Saved to: {output_path}"
+    )
 
     return orders_df
 
@@ -418,14 +507,23 @@ def generate_orders():
 # Order Item Data
 # --------------------------------------------------
 
-def generate_order_items(orders_df, products_df):
+def generate_order_items(
+    orders_df,
+    products_df,
+):
     order_items = []
 
     # Use SKU-004 to SKU-040 for normal random orders.
     # SKU-001, SKU-002 and SKU-003 are reserved for
     # deliberate demonstration scenarios.
     normal_products = products_df[
-        ~products_df["sku"].isin(["SKU-001", "SKU-002", "SKU-003"])
+        ~products_df["sku"].isin(
+            [
+                "SKU-001",
+                "SKU-002",
+                "SKU-003",
+            ]
+        )
     ]
 
     # --------------------------------------------------
@@ -438,6 +536,7 @@ def generate_order_items(orders_df, products_df):
         "ORD-1003": [("SKU-003", 5)],
         "ORD-1004": [("SKU-004", 2)],
         "ORD-1005": [("SKU-005", 1)],
+        "ORD-1006": [("SKU-006", 1)],
     }
 
     for _, order in orders_df.iterrows():
@@ -450,7 +549,9 @@ def generate_order_items(orders_df, products_df):
 
         if order_id in special_order_items:
 
-            selected_items = special_order_items[order_id]
+            selected_items = special_order_items[
+                order_id
+            ]
 
         else:
 
@@ -469,7 +570,10 @@ def generate_order_items(orders_df, products_df):
             )
 
             selected_items = [
-                (sku, random.randint(1, 3))
+                (
+                    sku,
+                    random.randint(1, 3),
+                )
                 for sku in selected_products
             ]
 
@@ -481,21 +585,34 @@ def generate_order_items(orders_df, products_df):
 
             order_items.append(
                 {
-                    "order_item_id": f"OI-{len(order_items) + 1:04d}",
+                    "order_item_id": (
+                        f"OI-{len(order_items) + 1:04d}"
+                    ),
                     "order_id": order_id,
                     "sku": sku,
                     "quantity": quantity,
                 }
             )
 
-    order_items_df = pd.DataFrame(order_items)
+    order_items_df = pd.DataFrame(
+        order_items
+    )
 
     # Save
     output_path = DATA_DIR / "order_items.csv"
-    order_items_df.to_csv(output_path, index=False)
 
-    print(f"Created {len(order_items_df)} order items")
-    print(f"Saved to: {output_path}")
+    order_items_df.to_csv(
+        output_path,
+        index=False,
+    )
+
+    print(
+        f"Created {len(order_items_df)} order items"
+    )
+
+    print(
+        f"Saved to: {output_path}"
+    )
 
     return order_items_df
 
@@ -532,13 +649,24 @@ def generate_couriers():
         },
     ]
 
-    couriers_df = pd.DataFrame(couriers)
+    couriers_df = pd.DataFrame(
+        couriers
+    )
 
     output_path = DATA_DIR / "couriers.csv"
-    couriers_df.to_csv(output_path, index=False)
 
-    print(f"Created {len(couriers_df)} couriers")
-    print(f"Saved to: {output_path}")
+    couriers_df.to_csv(
+        output_path,
+        index=False,
+    )
+
+    print(
+        f"Created {len(couriers_df)} couriers"
+    )
+
+    print(
+        f"Saved to: {output_path}"
+    )
 
     return couriers_df
 
@@ -550,7 +678,9 @@ def generate_couriers():
 def generate_shipments(orders_df):
     shipments = []
 
-    reference_now = pd.Timestamp("2026-10-01 12:00:00")
+    reference_now = pd.Timestamp(
+        "2026-10-01 12:00:00"
+    )
 
     # Courier pickup schedules
     courier_pickup_times = {
@@ -559,20 +689,36 @@ def generate_shipments(orders_df):
         "C003": "17:00",
     }
 
-    staging_locations = [
-        "A-01",
-        "A-02",
-        "A-03",
-        "B-01",
-        "B-02",
-        "B-03",
-    ]
+    # These IDs must match the staging_bays table
+    # created by database/db_setup.py.
+    #
+    # Each courier can only use its assigned bays:
+    #
+    # C001 -> A1, A2, B3
+    # C002 -> A3, A4, B4
+    # C003 -> B1, B2
+    staging_bays_by_courier = {
+        "C001": ["A1", "A2", "B3"],
+        "C002": ["A3", "A4", "B4"],
+        "C003": ["B1", "B2"],
+    }
 
     for _, order in orders_df.iterrows():
 
         order_id = order["order_id"]
         status = order["status"]
         courier_id = order["courier_id"]
+
+        # Always initialize these values first.
+        # This prevents UnboundLocalError for
+        # statuses that do not assign a pickup time.
+        pickup_datetime = pd.NaT
+        pickup_status = "Not Ready"
+        staging_location = ""
+
+        courier_staging_bays = staging_bays_by_courier[
+            courier_id
+        ]
 
         # --------------------------------------------------
         # Shipment status based on fulfillment status
@@ -583,18 +729,25 @@ def generate_shipments(orders_df):
             # Shipment has already been collected.
             pickup_status = "Picked Up"
 
-            pickup_datetime = reference_now - pd.Timedelta(
-                hours=random.randint(2, 48)
+            pickup_datetime = (
+                reference_now
+                - pd.Timedelta(
+                    hours=random.randint(2, 48)
+                )
             )
 
-            staging_location = random.choice(staging_locations)
+            staging_location = random.choice(
+                courier_staging_bays
+            )
 
         elif status == "Awaiting Pickup":
 
             pickup_status = "Awaiting Pickup"
 
             # Use the courier's scheduled pickup time.
-            pickup_time = courier_pickup_times[courier_id]
+            pickup_time = courier_pickup_times[
+                courier_id
+            ]
 
             scheduled_pickup_today = pd.Timestamp(
                 f"2026-10-01 {pickup_time}:00"
@@ -604,31 +757,45 @@ def generate_shipments(orders_df):
             if random.random() < 0.4:
 
                 # Previous scheduled pickup
-                pickup_datetime = scheduled_pickup_today - pd.Timedelta(
-                    days=1
+                pickup_datetime = (
+                    scheduled_pickup_today
+                    - pd.Timedelta(days=1)
                 )
 
             else:
 
                 # Today's scheduled pickup
-                pickup_datetime = scheduled_pickup_today
+                pickup_datetime = (
+                    scheduled_pickup_today
+                )
 
-            staging_location = random.choice(staging_locations)
+            staging_location = random.choice(
+                courier_staging_bays
+            )
 
-        elif status in ["Staged", "Packed"]:
+        elif status == "Staged":
 
+            # Staged orders have a physical staging
+            # location and are waiting for pickup.
             pickup_status = "Awaiting Pickup"
 
-            pickup_time = courier_pickup_times[courier_id]
+            pickup_time = courier_pickup_times[
+                courier_id
+            ]
 
             pickup_datetime = pd.Timestamp(
                 f"2026-10-01 {pickup_time}:00"
             )
 
-            staging_location = random.choice(staging_locations)
+            staging_location = random.choice(
+                courier_staging_bays
+            )
 
-        else:
+        elif status == "Packed":
 
+            # Packed means ready to be staged,
+            # but no physical staging bay has been
+            # assigned yet.
             pickup_status = "Not Ready"
             pickup_datetime = pd.NaT
             staging_location = ""
@@ -637,15 +804,21 @@ def generate_shipments(orders_df):
         # Tracking ID
         # --------------------------------------------------
 
-        tracking_id = f"TRK-{order_id.replace('ORD-', '')}"
+        tracking_id = (
+            f"TRK-{order_id.replace('ORD-', '')}"
+        )
 
         shipments.append(
             {
-                "shipment_id": f"SHP-{len(shipments) + 1:04d}",
+                "shipment_id": (
+                    f"SHP-{len(shipments) + 1:04d}"
+                ),
                 "order_id": order_id,
                 "courier_id": courier_id,
                 "pickup_datetime": (
-                    pickup_datetime.strftime("%Y-%m-%d %H:%M:%S")
+                    pickup_datetime.strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
                     if pd.notna(pickup_datetime)
                     else ""
                 ),
@@ -655,7 +828,9 @@ def generate_shipments(orders_df):
             }
         )
 
-    shipments_df = pd.DataFrame(shipments)
+    shipments_df = pd.DataFrame(
+        shipments
+    )
 
     # --------------------------------------------------
     # Deliberate overdue pickup scenario
@@ -671,11 +846,17 @@ def generate_shipments(orders_df):
 
     shipments_df.loc[
         shipments_df["order_id"] == "ORD-1010",
-        ["pickup_status", "pickup_datetime", "staging_location"],
+        [
+            "courier_id",
+            "pickup_status",
+            "pickup_datetime",
+            "staging_location",
+        ],
     ] = [
+        "C001",
         "Awaiting Pickup",
         "2026-09-30 15:00:00",
-        "A-01",
+        "A1",
     ]
 
     # --------------------------------------------------
@@ -683,23 +864,37 @@ def generate_shipments(orders_df):
     # --------------------------------------------------
 
     output_path = DATA_DIR / "shipments.csv"
-    shipments_df.to_csv(output_path, index=False)
 
-    print(f"Created {len(shipments_df)} shipments")
-    print(f"Saved to: {output_path}")
+    shipments_df.to_csv(
+        output_path,
+        index=False,
+    )
+
+    print(
+        f"Created {len(shipments_df)} shipments"
+    )
+
+    print(
+        f"Saved to: {output_path}"
+    )
 
     return shipments_df
-
 
 
 # --------------------------------------------------
 # Exception Data
 # --------------------------------------------------
 
-def generate_exceptions(orders_df, shipments_df, inventory_df):
+def generate_exceptions(
+    orders_df,
+    shipments_df,
+    inventory_df,
+):
     exceptions = []
 
-    reference_now = pd.Timestamp("2026-10-01 12:00:00")
+    reference_now = pd.Timestamp(
+        "2026-10-01 12:00:00"
+    )
 
     # --------------------------------------------------
     # Helper function
@@ -713,20 +908,26 @@ def generate_exceptions(orders_df, shipments_df, inventory_df):
         status,
         owner,
         created_at,
-        resolved_at=""
+        resolved_at="",
     ):
         exceptions.append(
             {
-                "exception_id": f"EXC-{len(exceptions) + 1:04d}",
+                "exception_id": (
+                    f"EXC-{len(exceptions) + 1:04d}"
+                ),
                 "order_id": order_id,
                 "issue_type": issue_type,
                 "description": description,
                 "priority": priority,
                 "status": status,
                 "owner": owner,
-                "created_at": created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                "created_at": created_at.strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                ),
                 "resolved_at": (
-                    resolved_at.strftime("%Y-%m-%d %H:%M:%S")
+                    resolved_at.strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
                     if resolved_at != ""
                     else ""
                 ),
@@ -740,11 +941,17 @@ def generate_exceptions(orders_df, shipments_df, inventory_df):
     add_exception(
         order_id="ORD-1002",
         issue_type="Inventory Shortage",
-        description="Main warehouse does not have enough stock to fulfill the order.",
+        description=(
+            "Main warehouse does not have enough "
+            "stock to fulfill the order."
+        ),
         priority="High",
         status="Open",
         owner="Warehouse",
-        created_at=reference_now - pd.Timedelta(hours=3),
+        created_at=(
+            reference_now
+            - pd.Timedelta(hours=3)
+        ),
     )
 
     # --------------------------------------------------
@@ -754,11 +961,18 @@ def generate_exceptions(orders_df, shipments_df, inventory_df):
     add_exception(
         order_id="ORD-1001",
         issue_type="Stock Transfer Required",
-        description="Required stock is available in the secondary warehouse but must be moved to the main warehouse before picking.",
+        description=(
+            "Required stock is available in the "
+            "secondary warehouse but must be moved "
+            "to the main warehouse before picking."
+        ),
         priority="High",
         status="In Progress",
         owner="Warehouse",
-        created_at=reference_now - pd.Timedelta(hours=2),
+        created_at=(
+            reference_now
+            - pd.Timedelta(hours=2)
+        ),
     )
 
     # --------------------------------------------------
@@ -768,11 +982,17 @@ def generate_exceptions(orders_df, shipments_df, inventory_df):
     add_exception(
         order_id="ORD-1004",
         issue_type="Variant Mismatch",
-        description="Picked product variant does not match the variant ordered by the customer.",
+        description=(
+            "Picked product variant does not match "
+            "the variant ordered by the customer."
+        ),
         priority="High",
         status="Open",
         owner="Warehouse",
-        created_at=reference_now - pd.Timedelta(hours=1),
+        created_at=(
+            reference_now
+            - pd.Timedelta(hours=1)
+        ),
     )
 
     # --------------------------------------------------
@@ -782,11 +1002,18 @@ def generate_exceptions(orders_df, shipments_df, inventory_df):
     add_exception(
         order_id="ORD-1010",
         issue_type="Courier Pickup Missed",
-        description="Order is staged and awaiting pickup, but the scheduled courier pickup time has passed.",
+        description=(
+            "Order is staged and awaiting pickup, "
+            "but the scheduled courier pickup time "
+            "has passed."
+        ),
         priority="High",
         status="Open",
         owner="Operations",
-        created_at=reference_now - pd.Timedelta(hours=4),
+        created_at=(
+            reference_now
+            - pd.Timedelta(hours=4)
+        ),
     )
 
     # --------------------------------------------------
@@ -796,11 +1023,18 @@ def generate_exceptions(orders_df, shipments_df, inventory_df):
     add_exception(
         order_id="ORD-1001",
         issue_type="Priority Order At Risk",
-        description="Priority order is still being processed and is approaching its required shipping deadline.",
+        description=(
+            "Priority order is still being processed "
+            "and is approaching its required shipping "
+            "deadline."
+        ),
         priority="High",
         status="Open",
         owner="Operations",
-        created_at=reference_now - pd.Timedelta(minutes=45),
+        created_at=(
+            reference_now
+            - pd.Timedelta(minutes=45)
+        ),
     )
 
     # --------------------------------------------------
@@ -811,7 +1045,10 @@ def generate_exceptions(orders_df, shipments_df, inventory_df):
         (
             "ORD-1020",
             "Picking Issue",
-            "Warehouse team could not immediately locate the required product.",
+            (
+                "Warehouse team could not immediately "
+                "locate the required product."
+            ),
             "Medium",
             "Open",
             "Warehouse",
@@ -819,7 +1056,10 @@ def generate_exceptions(orders_df, shipments_df, inventory_df):
         (
             "ORD-1030",
             "Packing Issue",
-            "Package requires repacking before it can be staged.",
+            (
+                "Package requires repacking before "
+                "it can be staged."
+            ),
             "Medium",
             "In Progress",
             "Warehouse",
@@ -827,7 +1067,10 @@ def generate_exceptions(orders_df, shipments_df, inventory_df):
         (
             "ORD-1040",
             "Staging Issue",
-            "Packed shipment was temporarily misplaced in the staging area.",
+            (
+                "Packed shipment was temporarily "
+                "misplaced in the staging area."
+            ),
             "Medium",
             "Open",
             "Warehouse",
@@ -835,7 +1078,10 @@ def generate_exceptions(orders_df, shipments_df, inventory_df):
         (
             "ORD-1050",
             "Inventory Mismatch",
-            "Recorded inventory does not match the physical stock count.",
+            (
+                "Recorded inventory does not match "
+                "the physical stock count."
+            ),
             "High",
             "In Progress",
             "Warehouse",
@@ -843,7 +1089,10 @@ def generate_exceptions(orders_df, shipments_df, inventory_df):
         (
             "ORD-1060",
             "Courier Pickup Missed",
-            "Courier did not collect the shipment during the scheduled pickup window.",
+            (
+                "Courier did not collect the shipment "
+                "during the scheduled pickup window."
+            ),
             "High",
             "Resolved",
             "Operations",
@@ -851,7 +1100,10 @@ def generate_exceptions(orders_df, shipments_df, inventory_df):
         (
             "ORD-1070",
             "Packing Issue",
-            "Packaging material was unavailable and delayed packing.",
+            (
+                "Packaging material was unavailable "
+                "and delayed packing."
+            ),
             "Low",
             "Resolved",
             "Warehouse",
@@ -859,23 +1111,39 @@ def generate_exceptions(orders_df, shipments_df, inventory_df):
         (
             "ORD-1080",
             "Picking Issue",
-            "Picker needed additional time to locate the product.",
+            (
+                "Picker needed additional time to "
+                "locate the product."
+            ),
             "Medium",
             "Resolved",
             "Warehouse",
         ),
     ]
 
-    for i, exception_data in enumerate(additional_exceptions):
+    for i, exception_data in enumerate(
+        additional_exceptions
+    ):
 
-        order_id, issue_type, description, priority, status, owner = exception_data
+        (
+            order_id,
+            issue_type,
+            description,
+            priority,
+            status,
+            owner,
+        ) = exception_data
 
-        created_at = reference_now - pd.Timedelta(
-            hours=(i + 2)
+        created_at = (
+            reference_now
+            - pd.Timedelta(hours=(i + 2))
         )
 
         if status == "Resolved":
-            resolved_at = created_at + pd.Timedelta(hours=1)
+            resolved_at = (
+                created_at
+                + pd.Timedelta(hours=1)
+            )
         else:
             resolved_at = ""
 
@@ -894,13 +1162,24 @@ def generate_exceptions(orders_df, shipments_df, inventory_df):
     # Save
     # --------------------------------------------------
 
-    exceptions_df = pd.DataFrame(exceptions)
+    exceptions_df = pd.DataFrame(
+        exceptions
+    )
 
     output_path = DATA_DIR / "exceptions.csv"
-    exceptions_df.to_csv(output_path, index=False)
 
-    print(f"Created {len(exceptions_df)} exceptions")
-    print(f"Saved to: {output_path}")
+    exceptions_df.to_csv(
+        output_path,
+        index=False,
+    )
+
+    print(
+        f"Created {len(exceptions_df)} exceptions"
+    )
+
+    print(
+        f"Saved to: {output_path}"
+    )
 
     return exceptions_df
 
@@ -910,14 +1189,28 @@ def generate_exceptions(orders_df, shipments_df, inventory_df):
 # --------------------------------------------------
 
 if __name__ == "__main__":
+
     products_df = generate_products()
-    inventory_df = generate_inventory(products_df)
+
+    inventory_df = generate_inventory(
+        products_df
+    )
+
     orders_df = generate_orders()
-    order_items_df = generate_order_items(orders_df, products_df)
+
+    order_items_df = generate_order_items(
+        orders_df,
+        products_df,
+    )
+
     couriers_df = generate_couriers()
-    shipments_df = generate_shipments(orders_df)
+
+    shipments_df = generate_shipments(
+        orders_df
+    )
+
     exceptions_df = generate_exceptions(
-        orders_df, 
-        shipments_df, 
-        inventory_df
+        orders_df,
+        shipments_df,
+        inventory_df,
     )

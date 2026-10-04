@@ -177,7 +177,7 @@ def transfer_stock(
         )
 
         # ----------------------------------------------
-        # Audit: secondary warehouse
+        # Record transfer out
         # ----------------------------------------------
 
         cursor.execute(
@@ -207,7 +207,7 @@ def transfer_stock(
         )
 
         # ----------------------------------------------
-        # Audit: main warehouse
+        # Record transfer in
         # ----------------------------------------------
 
         cursor.execute(
@@ -270,15 +270,6 @@ def adjust_inventory_count(
     """
     Correct system inventory to match a physical count.
 
-    Rules:
-    - Counted quantity cannot be negative.
-    - Reason is mandatory.
-    - Quantity delta is calculated from system quantity.
-    - Stock movement is recorded.
-    - Inventory Mismatch exception is created when
-      counted quantity differs from system quantity.
-    - Inventory update, audit record, and exception are atomic.
-
     Returns:
         (success, message)
     """
@@ -299,10 +290,6 @@ def adjust_inventory_count(
 
     try:
         cursor = connection.cursor()
-
-        # ----------------------------------------------
-        # Get current inventory
-        # ----------------------------------------------
 
         cursor.execute(
             """
@@ -328,17 +315,9 @@ def adjust_inventory_count(
 
         system_quantity = inventory[0]
 
-        # ----------------------------------------------
-        # Calculate adjustment
-        # ----------------------------------------------
-
         quantity_delta = (
             counted_quantity - system_quantity
         )
-
-        # ----------------------------------------------
-        # No adjustment required
-        # ----------------------------------------------
 
         if quantity_delta == 0:
             return (
@@ -347,10 +326,6 @@ def adjust_inventory_count(
                 f"{sku} already has a quantity of "
                 f"{system_quantity}.",
             )
-
-        # ----------------------------------------------
-        # Update inventory
-        # ----------------------------------------------
 
         cursor.execute(
             """
@@ -366,10 +341,6 @@ def adjust_inventory_count(
                 warehouse_id,
             ),
         )
-
-        # ----------------------------------------------
-        # Audit stock movement
-        # ----------------------------------------------
 
         cursor.execute(
             """
@@ -396,10 +367,6 @@ def adjust_inventory_count(
                 user_role,
             ),
         )
-
-        # ----------------------------------------------
-        # Create mismatch exception
-        # ----------------------------------------------
 
         reference_type = "Inventory"
         reference_id = f"{warehouse_id}:{sku}"
@@ -514,18 +481,6 @@ def transition_order_stage(
     """
     Move an order to the next valid fulfillment stage.
 
-    Rules:
-    - Only immediate next-stage transitions are allowed.
-    - Starting Picking is blocked when the main warehouse
-      does not have enough available stock.
-    - Every successful transition creates an order_events
-      audit record.
-    - Picking -> Picked requires successful Picking
-      verification for every order item.
-    - Packing -> Packed requires successful Packing
-      verification for every order item.
-    - Order update and audit event are atomic.
-
     Returns:
         (success, message)
     """
@@ -534,10 +489,6 @@ def transition_order_stage(
 
     try:
         cursor = connection.cursor()
-
-        # ----------------------------------------------
-        # Get current order
-        # ----------------------------------------------
 
         cursor.execute(
             """
@@ -557,10 +508,6 @@ def transition_order_stage(
             )
 
         current_status = order[0]
-
-        # ----------------------------------------------
-        # Validate stage transition
-        # ----------------------------------------------
 
         is_valid, transition_message = validate_stage_transition(
             current_status,
@@ -606,6 +553,7 @@ def transition_order_stage(
                 required_quantity,
                 available_quantity,
             ) in order_items:
+
                 allowed, stock_message = can_start_picking(
                     required_quantity,
                     available_quantity,
@@ -617,6 +565,64 @@ def transition_order_stage(
                         f"Cannot start Picking for {order_id}. "
                         f"SKU {sku}: {stock_message}",
                     )
+
+        # ----------------------------------------------
+        # Staging location check
+        # ----------------------------------------------
+
+        if new_status == "Staged":
+            cursor.execute(
+                """
+                SELECT
+                    o.courier_id,
+                    s.staging_location
+                FROM orders o
+                LEFT JOIN shipments s
+                    ON o.order_id = s.order_id
+                WHERE o.order_id = ?
+                """,
+                (order_id,),
+            )
+
+            staging = cursor.fetchone()
+
+            if staging is None:
+                return (
+                    False,
+                    f"Shipment information not found for {order_id}.",
+                )
+
+            courier_id, staging_location = staging
+
+            if not staging_location:
+                return (
+                    False,
+                    f"Cannot move {order_id} to Staged. "
+                    f"Assign a staging bay first.",
+                )
+
+            cursor.execute(
+                """
+                SELECT bay_id
+                FROM staging_bays
+                WHERE bay_id = ?
+                  AND courier_id = ?
+                  AND active = 1
+                """,
+                (
+                    staging_location,
+                    courier_id,
+                ),
+            )
+
+            valid_bay = cursor.fetchone()
+
+            if valid_bay is None:
+                return (
+                    False,
+                    f"Staging bay {staging_location} is not valid "
+                    f"for courier {courier_id}.",
+                )
 
         # ----------------------------------------------
         # Item verification check
@@ -673,10 +679,6 @@ def transition_order_stage(
             ),
         )
 
-        # ----------------------------------------------
-        # Create audit event
-        # ----------------------------------------------
-
         cursor.execute(
             """
             INSERT INTO order_events (
@@ -718,6 +720,128 @@ def transition_order_stage(
 
 
 # --------------------------------------------------
+# Assign Staging Bay
+# --------------------------------------------------
+
+def assign_staging_bay(
+    order_id,
+    bay_id,
+    user_role="Warehouse",
+):
+    """
+    Assign a packed order to a valid staging bay.
+
+    The bay must belong to the order's courier.
+
+    Returns:
+        (success, message)
+    """
+
+    connection = get_connection()
+
+    try:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                o.status,
+                o.courier_id
+            FROM orders o
+            WHERE o.order_id = ?
+            """,
+            (order_id,),
+        )
+
+        order = cursor.fetchone()
+
+        if order is None:
+            return (
+                False,
+                f"Order {order_id} was not found.",
+            )
+
+        current_status, courier_id = order
+
+        if current_status != "Packed":
+            return (
+                False,
+                f"{order_id} must be Packed before "
+                f"a staging bay can be assigned.",
+            )
+
+        cursor.execute(
+            """
+            SELECT bay_id
+            FROM staging_bays
+            WHERE bay_id = ?
+              AND courier_id = ?
+              AND active = 1
+            """,
+            (
+                bay_id,
+                courier_id,
+            ),
+        )
+
+        bay = cursor.fetchone()
+
+        if bay is None:
+            return (
+                False,
+                f"Staging bay {bay_id} is not valid "
+                f"for courier {courier_id}.",
+            )
+
+        cursor.execute(
+            """
+            SELECT shipment_id
+            FROM shipments
+            WHERE order_id = ?
+            """,
+            (order_id,),
+        )
+
+        shipment = cursor.fetchone()
+
+        if shipment is None:
+            return (
+                False,
+                f"Shipment record not found for {order_id}.",
+            )
+
+        cursor.execute(
+            """
+            UPDATE shipments
+            SET staging_location = ?
+            WHERE order_id = ?
+            """,
+            (
+                bay_id,
+                order_id,
+            ),
+        )
+
+        connection.commit()
+
+        return (
+            True,
+            f"{order_id} assigned to staging bay {bay_id}.",
+        )
+
+    except Exception as e:
+        connection.rollback()
+
+        return (
+            False,
+            f"Staging bay assignment failed: {e}",
+        )
+
+    finally:
+        connection.close()
+
+
+# --------------------------------------------------
 # Create Exception
 # --------------------------------------------------
 
@@ -743,10 +867,6 @@ def create_exception(
     try:
         cursor = connection.cursor()
 
-        # ----------------------------------------------
-        # Check for an existing exception
-        # ----------------------------------------------
-
         cursor.execute(
             """
             SELECT exception_id, status
@@ -770,10 +890,6 @@ def create_exception(
                 existing[0],
             )
 
-        # ----------------------------------------------
-        # Generate exception ID
-        # ----------------------------------------------
-
         cursor.execute(
             """
             SELECT exception_id
@@ -794,10 +910,6 @@ def create_exception(
             exception_id = (
                 f"EXC-{latest_number + 1:04d}"
             )
-
-        # ----------------------------------------------
-        # Insert exception
-        # ----------------------------------------------
 
         cursor.execute(
             """
@@ -849,6 +961,255 @@ def create_exception(
 
 
 # --------------------------------------------------
+# Process Courier Pickup
+# --------------------------------------------------
+
+def process_courier_pickup(
+    courier_id,
+    handed_over_order_ids,
+    user_role="Warehouse",
+):
+    """
+    Process a courier pickup.
+
+    Only explicitly handed-over staged boxes are shipped.
+
+    Boxes that remain staged receive a
+    Courier Pickup Missed exception.
+
+    Returns:
+        (success, message)
+    """
+
+    handed_over_order_ids = set(
+        handed_over_order_ids or []
+    )
+
+    connection = get_connection()
+
+    try:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                o.order_id,
+                o.status,
+                s.staging_location
+            FROM orders o
+            INNER JOIN shipments s
+                ON o.order_id = s.order_id
+            WHERE o.courier_id = ?
+              AND o.status = 'Staged'
+              AND s.staging_location IS NOT NULL
+              AND s.staging_location != ''
+            ORDER BY o.required_ship_datetime
+            """,
+            (courier_id,),
+        )
+
+        staged_orders = cursor.fetchall()
+
+        if not staged_orders:
+            return (
+                False,
+                f"No staged orders are waiting for courier {courier_id}.",
+            )
+
+        staged_order_ids = {
+            row[0]
+            for row in staged_orders
+        }
+
+        invalid_orders = (
+            handed_over_order_ids - staged_order_ids
+        )
+
+        if invalid_orders:
+            invalid_list = ", ".join(
+                sorted(invalid_orders)
+            )
+
+            return (
+                False,
+                f"These orders are not currently staged "
+                f"for courier {courier_id}: {invalid_list}",
+            )
+
+        shipped_count = 0
+        missed_count = 0
+
+        for (
+            order_id,
+            current_status,
+            staging_location,
+        ) in staged_orders:
+
+            if order_id in handed_over_order_ids:
+
+                cursor.execute(
+                    """
+                    UPDATE orders
+                    SET status = 'Awaiting Pickup'
+                    WHERE order_id = ?
+                    """,
+                    (order_id,),
+                )
+
+                cursor.execute(
+                    """
+                    INSERT INTO order_events (
+                        order_id,
+                        from_status,
+                        to_status,
+                        user_role,
+                        note
+                    )
+                    VALUES (?, 'Staged', 'Awaiting Pickup', ?, ?)
+                    """,
+                    (
+                        order_id,
+                        user_role,
+                        f"Courier {courier_id} pickup initiated "
+                        f"from staging bay {staging_location}.",
+                    ),
+                )
+
+                cursor.execute(
+                    """
+                    UPDATE orders
+                    SET status = 'Shipped'
+                    WHERE order_id = ?
+                    """,
+                    (order_id,),
+                )
+
+                cursor.execute(
+                    """
+                    INSERT INTO order_events (
+                        order_id,
+                        from_status,
+                        to_status,
+                        user_role,
+                        note
+                    )
+                    VALUES (?, 'Awaiting Pickup', 'Shipped', ?, ?)
+                    """,
+                    (
+                        order_id,
+                        user_role,
+                        f"Handed over to courier {courier_id}.",
+                    ),
+                )
+
+                cursor.execute(
+                    """
+                    UPDATE shipments
+                    SET pickup_status = 'Picked Up',
+                        pickup_datetime = CURRENT_TIMESTAMP
+                    WHERE order_id = ?
+                    """,
+                    (order_id,),
+                )
+
+                shipped_count += 1
+
+            else:
+
+                cursor.execute(
+                    """
+                    SELECT exception_id
+                    FROM exceptions
+                    WHERE order_id = ?
+                      AND issue_type = 'Courier Pickup Missed'
+                    """,
+                    (order_id,),
+                )
+
+                existing_exception = cursor.fetchone()
+
+                if existing_exception is None:
+
+                    cursor.execute(
+                        """
+                        SELECT exception_id
+                        FROM exceptions
+                        ORDER BY exception_id DESC
+                        LIMIT 1
+                        """
+                    )
+
+                    latest = cursor.fetchone()
+
+                    if latest is None:
+                        exception_id = "EXC-0001"
+                    else:
+                        latest_number = int(
+                            latest[0].replace("EXC-", "")
+                        )
+                        exception_id = (
+                            f"EXC-{latest_number + 1:04d}"
+                        )
+
+                    description = (
+                        f"Courier {courier_id} pickup completed "
+                        f"without collecting {order_id}. "
+                        f"Box remains in staging bay "
+                        f"{staging_location}."
+                    )
+
+                    cursor.execute(
+                        """
+                        INSERT INTO exceptions (
+                            exception_id,
+                            order_id,
+                            issue_type,
+                            description,
+                            priority,
+                            status,
+                            owner,
+                            created_at,
+                            resolved_at
+                        )
+                        VALUES (
+                            ?, ?, ?, ?, ?, 'Open', ?,
+                            CURRENT_TIMESTAMP, NULL
+                        )
+                        """,
+                        (
+                            exception_id,
+                            order_id,
+                            "Courier Pickup Missed",
+                            description,
+                            "High",
+                            "Warehouse",
+                        ),
+                    )
+
+                missed_count += 1
+
+        connection.commit()
+
+        return (
+            True,
+            f"Courier {courier_id} pickup processed. "
+            f"{shipped_count} box(es) handed over; "
+            f"{missed_count} box(es) remain staged and flagged.",
+        )
+
+    except Exception as e:
+        connection.rollback()
+
+        return (
+            False,
+            f"Courier pickup failed: {e}",
+        )
+
+    finally:
+        connection.close()
+
+
+# --------------------------------------------------
 # Verify Order Item
 # --------------------------------------------------
 
@@ -863,10 +1224,7 @@ def verify_order_item_in_db(
 ):
     """
     Verify one order item against product master data
-    and store the successful verification for the specified stage.
-
-    Wrong item and wrong variant results create a
-    Variant Mismatch exception.
+    and store the successful verification.
     """
 
     valid_stages = {
@@ -885,10 +1243,6 @@ def verify_order_item_in_db(
 
     try:
         cursor = connection.cursor()
-
-        # ----------------------------------------------
-        # Get expected order item details
-        # ----------------------------------------------
 
         cursor.execute(
             """
@@ -922,10 +1276,6 @@ def verify_order_item_in_db(
             expected_variant,
         ) = item
 
-        # ----------------------------------------------
-        # Verify item
-        # ----------------------------------------------
-
         result = verify_order_item(
             expected_sku=expected_sku,
             expected_product_name=expected_product_name,
@@ -937,11 +1287,8 @@ def verify_order_item_in_db(
             required_quantity=required_quantity,
         )
 
-        # ----------------------------------------------
-        # Handle failed verification
-        # ----------------------------------------------
-
         if not result["is_valid"]:
+
             if result["status"] in {
                 "WRONG ITEM",
                 "WRONG VARIANT",
@@ -958,10 +1305,6 @@ def verify_order_item_in_db(
                 False,
                 result["message"],
             )
-
-        # ----------------------------------------------
-        # Store successful verification
-        # ----------------------------------------------
 
         cursor.execute(
             """
@@ -1017,11 +1360,6 @@ def update_exception_status(
         Open
         In Progress
         Resolved
-
-    resolved_at is automatically managed.
-
-    Returns:
-        (success, message)
     """
 
     valid_statuses = {
