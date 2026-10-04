@@ -2,138 +2,181 @@ import pandas as pd
 
 from utils.calculations import (
     calculate_inventory_status,
+    calculate_order_inventory_status,
     calculate_order_risk,
     calculate_pickup_risk,
-    calculate_order_inventory_status,
+    validate_stage_transition,
+    can_start_picking,
 )
 
 
 # --------------------------------------------------
-# Load generated data
+# Existing calculation tests
 # --------------------------------------------------
 
-inventory_df = pd.read_csv("data/inventory.csv")
-orders_df = pd.read_csv("data/orders.csv")
-order_items_df = pd.read_csv("data/order_items.csv")
-shipments_df = pd.read_csv("data/shipments.csv")
-
-
-# --------------------------------------------------
-# Test 1: Inventory
-# --------------------------------------------------
-
-inventory_result = calculate_inventory_status(
-    inventory_df
-)
-
-print("\n--- INVENTORY TEST ---")
-
-print(
-    inventory_result[
-        inventory_result["sku"].isin(
-            ["SKU-001", "SKU-002", "SKU-003"]
-        )
-    ][
+def test_inventory_available_quantity():
+    inventory = pd.DataFrame(
         [
-            "sku",
-            "warehouse_id",
-            "quantity_on_hand",
-            "reserved_quantity",
-            "available_quantity",
-            "status",
+            {
+                "sku": "SKU-001",
+                "warehouse_id": "WH-MAIN",
+                "quantity_on_hand": 10,
+                "reserved_quantity": 3,
+                "reorder_level": 5,
+            }
         ]
-    ].to_string(index=False)
-)
+    )
+
+    result = calculate_inventory_status(inventory)
+
+    assert result.iloc[0]["available_quantity"] == 7
+    assert result.iloc[0]["status"] == "Available"
 
 
-# --------------------------------------------------
-# Test 2: Order Risk
-# --------------------------------------------------
-
-order_risk_result = calculate_order_risk(
-    orders_df
-)
-
-print("\n--- ORDER RISK TEST ---")
-
-print(
-    order_risk_result[
-        order_risk_result["order_id"].isin(
-            [
-                "ORD-1001",
-                "ORD-1002",
-                "ORD-1003",
-                "ORD-1004",
-                "ORD-1005",
-            ]
-        )
-    ][
+def test_order_risk_flags_delayed_order():
+    orders = pd.DataFrame(
         [
-            "order_id",
-            "priority",
-            "required_ship_datetime",
-            "status",
-            "is_delayed",
-            "is_priority_at_risk",
+            {
+                "order_id": "ORD-TEST",
+                "priority": False,
+                "required_ship_datetime": "2026-10-01 09:00:00",
+                "status": "Processed",
+            }
         ]
-    ].to_string(index=False)
-)
+    )
+
+    result = calculate_order_risk(orders)
+
+    assert bool(result.iloc[0]["is_delayed"]) is True
 
 
-# --------------------------------------------------
-# Test 3: Pickup Risk
-# --------------------------------------------------
-
-pickup_result = calculate_pickup_risk(
-    shipments_df
-)
-
-print("\n--- PICKUP TEST ---")
-
-print(
-    pickup_result[
-        pickup_result["order_id"].isin(
-            ["ORD-1010"]
-        )
-    ][
+def test_pickup_risk_flags_overdue_pickup():
+    shipments = pd.DataFrame(
         [
-            "order_id",
-            "courier_id",
-            "pickup_datetime",
-            "pickup_status",
-            "pickup_overdue",
+            {
+                "order_id": "ORD-TEST",
+                "pickup_datetime": "2026-09-30 15:00:00",
+                "pickup_status": "Awaiting Pickup",
+            }
         ]
-    ].to_string(index=False)
-)
+    )
+
+    result = calculate_pickup_risk(shipments)
+
+    assert bool(result.iloc[0]["pickup_overdue"]) is True
 
 
 # --------------------------------------------------
-# Test 4: Order Inventory
+# Stage Transition Tests
 # --------------------------------------------------
 
-order_inventory_result = calculate_order_inventory_status(
-    orders_df,
-    order_items_df,
-    inventory_df,
-)
+def test_valid_stage_transition():
+    valid, message = validate_stage_transition(
+        "Received",
+        "Processed",
+    )
 
-print("\n--- ORDER INVENTORY TEST ---")
+    assert valid is True
+    assert "Valid" in message
 
-print(
-    order_inventory_result[
-        order_inventory_result["order_id"].isin(
-            [
-                "ORD-1001",
-                "ORD-1002",
-                "ORD-1003",
-            ]
-        )
-    ][
+
+def test_invalid_stage_transition_cannot_skip_stage():
+    valid, message = validate_stage_transition(
+        "Received",
+        "Picking",
+    )
+
+    assert valid is False
+    assert "Invalid transition" in message
+
+
+def test_shipped_order_cannot_move():
+    valid, message = validate_stage_transition(
+        "Shipped",
+        "Received",
+    )
+
+    assert valid is False
+    assert "Shipped" in message
+
+
+# --------------------------------------------------
+# Picking Stock Gate Tests
+# --------------------------------------------------
+
+def test_picking_allowed_when_main_stock_is_sufficient():
+    valid, message = can_start_picking(
+        required_quantity=5,
+        main_available_quantity=5,
+    )
+
+    assert valid is True
+
+
+def test_picking_blocked_when_main_stock_is_insufficient():
+    valid, message = can_start_picking(
+        required_quantity=5,
+        main_available_quantity=2,
+    )
+
+    assert valid is False
+    assert "main warehouse" in message.lower()
+    assert "transfer" in message.lower()
+
+
+# --------------------------------------------------
+# Existing Inventory Logic Protection
+# --------------------------------------------------
+
+def test_order_inventory_status_preserves_transfer_required():
+    orders = pd.DataFrame(
         [
-            "order_id",
-            "inventory_status",
-            "main_shortage",
-            "inventory_shortage",
+            {
+                "order_id": "ORD-1001",
+                "status": "Processed",
+            }
         ]
-    ].to_string(index=False)
-)
+    )
+
+    order_items = pd.DataFrame(
+        [
+            {
+                "order_item_id": "OI-1",
+                "order_id": "ORD-1001",
+                "sku": "SKU-001",
+                "quantity": 5,
+            }
+        ]
+    )
+
+    inventory = pd.DataFrame(
+        [
+            {
+                "sku": "SKU-001",
+                "warehouse_id": "WH-MAIN",
+                "quantity_on_hand": 2,
+                "reserved_quantity": 0,
+                "reorder_level": 5,
+            },
+            {
+                "sku": "SKU-001",
+                "warehouse_id": "WH-SEC",
+                "quantity_on_hand": 10,
+                "reserved_quantity": 0,
+                "reorder_level": 5,
+            },
+        ]
+    )
+
+    result = calculate_order_inventory_status(
+        orders,
+        order_items,
+        inventory,
+    )
+
+    assert (
+        result.iloc[0]["inventory_status"]
+        == "Transfer Required"
+    )
+
+    assert result.iloc[0]["main_shortage"] == 3

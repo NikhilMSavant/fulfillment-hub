@@ -2,6 +2,103 @@ import pandas as pd
 
 
 # --------------------------------------------------
+# Fulfillment Workflow Rules
+# --------------------------------------------------
+
+FULFILLMENT_STAGES = [
+    "Received",
+    "Processed",
+    "Picking",
+    "Picked",
+    "Packing",
+    "Packed",
+    "Staged",
+    "Awaiting Pickup",
+    "Shipped",
+]
+
+VALID_STAGE_TRANSITIONS = {
+    "Received": "Processed",
+    "Processed": "Picking",
+    "Picking": "Picked",
+    "Picked": "Packing",
+    "Packing": "Packed",
+    "Packed": "Staged",
+    "Staged": "Awaiting Pickup",
+    "Awaiting Pickup": "Shipped",
+}
+
+
+def validate_stage_transition(current_status, new_status):
+    """
+    Validate that an order moves only to the next
+    allowed fulfillment stage.
+
+    Returns:
+        (is_valid, message)
+    """
+
+    if current_status not in FULFILLMENT_STAGES:
+        return (
+            False,
+            f"Unknown current fulfillment stage: {current_status}",
+        )
+
+    if new_status not in FULFILLMENT_STAGES:
+        return (
+            False,
+            f"Unknown target fulfillment stage: {new_status}",
+        )
+
+    if current_status == "Shipped":
+        return (
+            False,
+            "Shipped orders cannot move to another fulfillment stage.",
+        )
+
+    expected_next = VALID_STAGE_TRANSITIONS.get(
+        current_status
+    )
+
+    if new_status != expected_next:
+        return (
+            False,
+            f"Invalid transition: {current_status} → {new_status}. "
+            f"The next allowed stage is {expected_next}.",
+        )
+
+    return True, "Valid fulfillment stage transition."
+
+
+def can_start_picking(
+    required_quantity,
+    main_available_quantity,
+):
+    """
+    Determine whether an order line can enter Picking.
+
+    Picking is allowed only when the main warehouse
+    has enough available stock.
+    """
+
+    if required_quantity <= 0:
+        return (
+            False,
+            "Required quantity must be greater than zero.",
+        )
+
+    if main_available_quantity < required_quantity:
+        return (
+            False,
+            "Picking is blocked because the main warehouse "
+            "does not have enough available stock. "
+            "Transfer stock to the main warehouse first.",
+        )
+
+    return True, "Main warehouse has enough stock for picking."
+
+
+# --------------------------------------------------
 # Inventory Calculations
 # --------------------------------------------------
 

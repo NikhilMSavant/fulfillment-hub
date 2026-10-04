@@ -43,17 +43,30 @@ def run_query(query, params=None):
 # Transfer Stock
 # --------------------------------------------------
 
-def transfer_stock(sku, quantity):
+def transfer_stock(
+    sku,
+    quantity,
+    user_role="Warehouse",
+    reason="Operational stock transfer",
+):
     """
     Transfer stock for a SKU from the secondary warehouse
     to the main warehouse.
+
+    The transfer is atomic:
+    - Secondary warehouse decreases.
+    - Main warehouse increases.
+    - Two stock movement audit records are created.
 
     Returns:
         (success, message)
     """
 
     if quantity <= 0:
-        return False, "Transfer quantity must be greater than zero."
+        return (
+            False,
+            "Transfer quantity must be greater than zero.",
+        )
 
     connection = get_connection()
 
@@ -77,7 +90,10 @@ def transfer_stock(sku, quantity):
         secondary = cursor.fetchone()
 
         if secondary is None:
-            return False, "Secondary warehouse stock record not found."
+            return (
+                False,
+                "Secondary warehouse stock record not found.",
+            )
 
         secondary_on_hand, secondary_reserved = secondary
 
@@ -88,12 +104,13 @@ def transfer_stock(sku, quantity):
         if quantity > secondary_available:
             return (
                 False,
-                f"Only {secondary_available} units are available "
-                f"for transfer from the secondary warehouse.",
+                f"Only {secondary_available} units are "
+                f"available for transfer from the "
+                f"secondary warehouse.",
             )
 
         # ----------------------------------------------
-        # Get main warehouse record
+        # Verify main warehouse record
         # ----------------------------------------------
 
         cursor.execute(
@@ -109,7 +126,10 @@ def transfer_stock(sku, quantity):
         main = cursor.fetchone()
 
         if main is None:
-            return False, "Main warehouse stock record not found."
+            return (
+                False,
+                "Main warehouse stock record not found.",
+            )
 
         # ----------------------------------------------
         # Update secondary warehouse
@@ -139,6 +159,66 @@ def transfer_stock(sku, quantity):
               AND warehouse_id = 'WH-MAIN'
             """,
             (quantity, sku),
+        )
+
+        # ----------------------------------------------
+        # Audit: secondary warehouse
+        # ----------------------------------------------
+
+        cursor.execute(
+            """
+            INSERT INTO stock_movements (
+                sku,
+                warehouse_id,
+                movement_type,
+                quantity_delta,
+                reference_type,
+                reference_id,
+                reason,
+                user_role
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                sku,
+                "WH-SEC",
+                "Transfer Out",
+                -quantity,
+                "Stock Transfer",
+                sku,
+                reason,
+                user_role,
+            ),
+        )
+
+        # ----------------------------------------------
+        # Audit: main warehouse
+        # ----------------------------------------------
+
+        cursor.execute(
+            """
+            INSERT INTO stock_movements (
+                sku,
+                warehouse_id,
+                movement_type,
+                quantity_delta,
+                reference_type,
+                reference_id,
+                reason,
+                user_role
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                sku,
+                "WH-MAIN",
+                "Transfer In",
+                quantity,
+                "Stock Transfer",
+                sku,
+                reason,
+                user_role,
+            ),
         )
 
         connection.commit()
