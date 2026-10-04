@@ -1225,6 +1225,10 @@ def verify_order_item_in_db(
     """
     Verify one order item against product master data
     and store the successful verification.
+
+    The same item can be verified once at Picking
+    and once at Packing, but repeated verification
+    at the same stage is not recorded again.
     """
 
     valid_stages = {
@@ -1306,6 +1310,31 @@ def verify_order_item_in_db(
                 result["message"],
             )
 
+        # Prevent duplicate successful verification
+        # for the same item at the same stage.
+        cursor.execute(
+            """
+            SELECT verification_id
+            FROM order_item_verifications
+            WHERE order_item_id = ?
+              AND stage = ?
+            ORDER BY verification_id DESC
+            LIMIT 1
+            """,
+            (
+                order_item_id,
+                stage,
+            ),
+        )
+
+        existing_verification = cursor.fetchone()
+
+        if existing_verification is not None:
+            return (
+                True,
+                "Item was already verified for this stage.",
+            )
+
         cursor.execute(
             """
             INSERT INTO order_item_verifications (
@@ -1343,7 +1372,6 @@ def verify_order_item_in_db(
 
     finally:
         connection.close()
-
 
 # --------------------------------------------------
 # Update Exception Status
