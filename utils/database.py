@@ -404,3 +404,228 @@ def transition_order_stage(
     finally:
 
         connection.close()
+
+
+# --------------------------------------------------
+# Create Exception
+# --------------------------------------------------
+
+def create_exception(
+    order_id,
+    issue_type,
+    description,
+    priority="Medium",
+    owner="Warehouse",
+):
+    """
+    Create an operational exception.
+
+    Duplicate exceptions for the same order and issue type
+    are prevented.
+
+    Returns:
+        (success, message, exception_id)
+    """
+
+    connection = get_connection()
+
+    try:
+        cursor = connection.cursor()
+
+        # ----------------------------------------------
+        # Check for an existing exception
+        # ----------------------------------------------
+
+        cursor.execute(
+            """
+            SELECT exception_id, status
+            FROM exceptions
+            WHERE order_id = ?
+              AND issue_type = ?
+            """,
+            (order_id, issue_type),
+        )
+
+        existing = cursor.fetchone()
+
+        if existing is not None:
+            return (
+                False,
+                f"Exception already exists for {order_id}: "
+                f"{issue_type}.",
+                existing[0],
+            )
+
+        # ----------------------------------------------
+        # Generate exception ID
+        # ----------------------------------------------
+
+        cursor.execute(
+            """
+            SELECT exception_id
+            FROM exceptions
+            ORDER BY exception_id DESC
+            LIMIT 1
+            """
+        )
+
+        latest = cursor.fetchone()
+
+        if latest is None:
+            exception_id = "EXC-0001"
+        else:
+            latest_number = int(
+                latest[0].replace("EXC-", "")
+            )
+            exception_id = f"EXC-{latest_number + 1:04d}"
+
+        # ----------------------------------------------
+        # Insert exception
+        # ----------------------------------------------
+
+        cursor.execute(
+            """
+            INSERT INTO exceptions (
+                exception_id,
+                order_id,
+                issue_type,
+                description,
+                priority,
+                status,
+                owner,
+                created_at,
+                resolved_at
+            )
+            VALUES (
+                ?, ?, ?, ?, ?, 'Open', ?, CURRENT_TIMESTAMP, NULL
+            )
+            """,
+            (
+                exception_id,
+                order_id,
+                issue_type,
+                description,
+                priority,
+                owner,
+            ),
+        )
+
+        connection.commit()
+
+        return (
+            True,
+            f"Exception {exception_id} created.",
+            exception_id,
+        )
+
+    except Exception as e:
+
+        connection.rollback()
+
+        return (
+            False,
+            f"Exception creation failed: {e}",
+            None,
+        )
+
+    finally:
+
+        connection.close()
+
+
+# --------------------------------------------------
+# Update Exception Status
+# --------------------------------------------------
+
+def update_exception_status(
+    exception_id,
+    new_status,
+):
+    """
+    Update an exception's workflow status.
+
+    Valid statuses:
+        Open
+        In Progress
+        Resolved
+
+    resolved_at is automatically managed.
+    """
+
+    valid_statuses = {
+        "Open",
+        "In Progress",
+        "Resolved",
+    }
+
+    if new_status not in valid_statuses:
+        return (
+            False,
+            f"Invalid exception status: {new_status}.",
+        )
+
+    connection = get_connection()
+
+    try:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT status
+            FROM exceptions
+            WHERE exception_id = ?
+            """,
+            (exception_id,),
+        )
+
+        existing = cursor.fetchone()
+
+        if existing is None:
+            return (
+                False,
+                f"Exception {exception_id} was not found.",
+            )
+
+        if new_status == "Resolved":
+
+            cursor.execute(
+                """
+                UPDATE exceptions
+                SET status = ?,
+                    resolved_at = CURRENT_TIMESTAMP
+                WHERE exception_id = ?
+                """,
+                (new_status, exception_id),
+            )
+
+        else:
+
+            cursor.execute(
+                """
+                UPDATE exceptions
+                SET status = ?,
+                    resolved_at = NULL
+                WHERE exception_id = ?
+                """,
+                (new_status, exception_id),
+            )
+
+        connection.commit()
+
+        return (
+            True,
+            f"Exception {exception_id} updated to {new_status}.",
+        )
+
+    except Exception as e:
+
+        connection.rollback()
+
+        return (
+            False,
+            f"Exception update failed: {e}",
+        )
+
+    finally:
+
+        connection.close()
